@@ -1,5 +1,6 @@
 import type {
   BackgroundConfig,
+  DeepSeekTheme,
   Memory,
   ModelType,
   Skill,
@@ -27,6 +28,8 @@ import type { AutomationRunnerRequest, AutomationRunnerResult } from '../core/au
 const TOOL_BLOCK_ID = 'dpp-tool-block';
 const TOOL_BLOCK_STYLE_ID = 'dpp-tool-block-css';
 const TOOL_RESTORE_STORAGE_KEY = 'dpp_tool_execution_blocks';
+const THEME_BOOTSTRAP_RETRY_MS = 250;
+const THEME_BOOTSTRAP_RETRY_LIMIT = 20;
 
 interface PersistedToolBlock extends ToolCallRestoreRecord {
   source: 'storage';
@@ -41,6 +44,14 @@ let restoredRenderTimer: ReturnType<typeof setTimeout> | null = null;
 let restoredRenderAttempts = 0;
 const pendingToolExecutionTasks = new Set<Promise<ToolCardResult>>();
 let backgroundPatchObserver: MutationObserver | null = null;
+let themeObserver: MutationObserver | null = null;
+let themeTreeObserver: MutationObserver | null = null;
+let themeMediaQuery: MediaQueryList | null = null;
+let themeMediaListener: ((event: MediaQueryListEvent) => void) | null = null;
+let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let themeBootstrapTimer: ReturnType<typeof setTimeout> | null = null;
+let themeBootstrapAttempts = 0;
+let currentDeepSeekTheme: DeepSeekTheme | null = null;
 const manualContinuationDepth = new Map<string, number>();
 const MANUAL_TOOL_CONTINUATION_LIMIT = 3;
 let currentMemories: Memory[] = [];
@@ -116,6 +127,8 @@ export default defineContentScript({
       if (document.readyState === 'complete' || document.readyState === 'interactive') r(undefined);
       else document.addEventListener('DOMContentLoaded', () => r(undefined), { once: true });
     });
+
+    startDeepSeekThemeSync();
 
     const [memories, skills, activePreset, modelType, toolDescriptors] = await Promise.all([
       sendRuntimeMessage<Memory[]>({ type: 'GET_MEMORIES' }),
@@ -205,6 +218,7 @@ function invalidateExtensionContext() {
   extensionContextValid = false;
   backgroundPatchObserver?.disconnect();
   backgroundPatchObserver = null;
+  stopDeepSeekThemeSync();
   if (restoredRenderTimer) {
     clearTimeout(restoredRenderTimer);
     restoredRenderTimer = null;
@@ -280,6 +294,197 @@ function addRuntimeMessageListener(
       invalidateExtensionContext();
     }
   }
+}
+
+function startDeepSeekThemeSync() {
+  syncDeepSeekTheme();
+
+  themeObserver?.disconnect();
+  themeObserver = new MutationObserver(scheduleDeepSeekThemeSync);
+  observeThemeHost(document.documentElement);
+  observeThemeHost(document.body);
+  observeThemeHost(document.getElementById('root'));
+
+  themeMediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  themeMediaListener = () => scheduleDeepSeekThemeSync();
+  themeMediaQuery.addEventListener('change', themeMediaListener);
+
+  startThemeBootstrapSync();
+}
+
+function stopDeepSeekThemeSync() {
+  themeObserver?.disconnect();
+  themeObserver = null;
+  stopThemeBootstrapSync();
+  if (themeSyncTimer) {
+    clearTimeout(themeSyncTimer);
+    themeSyncTimer = null;
+  }
+  if (themeMediaQuery && themeMediaListener) {
+    themeMediaQuery.removeEventListener('change', themeMediaListener);
+  }
+  themeMediaQuery = null;
+  themeMediaListener = null;
+}
+
+function startThemeBootstrapSync() {
+  stopThemeBootstrapSync();
+  themeBootstrapAttempts = 0;
+  themeTreeObserver = new MutationObserver(() => {
+    observeThemeTree(document.getElementById('root'));
+    scheduleDeepSeekThemeSync();
+  });
+
+  observeThemeTree(document.body);
+  observeThemeTree(document.getElementById('root'));
+  scheduleThemeBootstrapRetry();
+}
+
+function stopThemeBootstrapSync() {
+  themeTreeObserver?.disconnect();
+  themeTreeObserver = null;
+  if (themeBootstrapTimer) {
+    clearTimeout(themeBootstrapTimer);
+    themeBootstrapTimer = null;
+  }
+}
+
+function observeThemeHost(element: Element | null) {
+  if (!element || !themeObserver) return;
+  themeObserver.observe(element, {
+    attributes: true,
+    attributeFilter: ['class', 'style', 'data-theme', 'data-color-mode', 'data-mode', 'color-scheme'],
+  });
+}
+
+function observeThemeTree(element: Element | null) {
+  if (!element || !themeTreeObserver) return;
+  themeTreeObserver.observe(element, { childList: true, subtree: true });
+}
+
+function scheduleThemeBootstrapRetry() {
+  if (themeBootstrapTimer) return;
+  themeBootstrapTimer = setTimeout(() => {
+    themeBootstrapTimer = null;
+    themeBootstrapAttempts += 1;
+    syncDeepSeekTheme();
+
+    if (themeBootstrapAttempts >= THEME_BOOTSTRAP_RETRY_LIMIT) {
+      stopThemeBootstrapSync();
+      return;
+    }
+    scheduleThemeBootstrapRetry();
+  }, THEME_BOOTSTRAP_RETRY_MS);
+}
+
+function scheduleDeepSeekThemeSync() {
+  if (themeSyncTimer) clearTimeout(themeSyncTimer);
+  themeSyncTimer = setTimeout(() => {
+    themeSyncTimer = null;
+    syncDeepSeekTheme();
+  }, 50);
+}
+
+function syncDeepSeekTheme() {
+  const theme = detectDeepSeekTheme();
+  applyDeepSeekThemeClass(theme);
+  if (theme === currentDeepSeekTheme) return;
+  currentDeepSeekTheme = theme;
+  void sendRuntimeMessage({ type: 'SET_DEEPSEEK_THEME', payload: { theme } });
+}
+
+function applyDeepSeekThemeClass(theme: DeepSeekTheme) {
+  document.body.classList.toggle('dpp-theme-dark', theme === 'dark');
+  document.body.classList.toggle('dpp-theme-light', theme === 'light');
+}
+
+function detectDeepSeekTheme(): DeepSeekTheme {
+  return detectExplicitTheme() ??
+    detectBackgroundTheme() ??
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+function detectExplicitTheme(): DeepSeekTheme | null {
+  const hosts = [document.documentElement, document.body, document.getElementById('root')]
+    .filter((element): element is HTMLElement => Boolean(element));
+  const attributeNames = ['data-theme', 'data-color-mode', 'data-mode', 'color-scheme'];
+
+  for (const host of hosts) {
+    for (const name of attributeNames) {
+      const theme = parseThemeText(host.getAttribute(name));
+      if (theme) return theme;
+    }
+
+    const themeFromClass = parseThemeText(typeof host.className === 'string' ? host.className : '');
+    if (themeFromClass) return themeFromClass;
+
+    const scheme = getComputedStyle(host).colorScheme.toLowerCase().trim();
+    if (scheme === 'dark' || scheme === 'light') return scheme;
+  }
+
+  return null;
+}
+
+function parseThemeText(value: string | null): DeepSeekTheme | null {
+  if (!value) return null;
+  const normalized = value.toLowerCase();
+  if (/(^|[\s_-])(dark|black|night)([\s_-]|$)/.test(normalized)) return 'dark';
+  if (/(^|[\s_-])(light|white|day)([\s_-]|$)/.test(normalized)) return 'light';
+  return null;
+}
+
+function detectBackgroundTheme(): DeepSeekTheme | null {
+  const sampled = document.elementFromPoint(
+    Math.max(0, Math.floor(window.innerWidth / 2)),
+    Math.max(0, Math.min(Math.floor(window.innerHeight / 2), 240)),
+  );
+  const candidates = [
+    sampled,
+    document.querySelector('main'),
+    document.getElementById('root'),
+    document.body,
+    document.documentElement,
+  ].filter((element): element is Element => Boolean(element));
+
+  for (const candidate of candidates) {
+    let element: Element | null = candidate;
+    while (element && element !== document.documentElement.parentElement) {
+      const theme = themeFromBackgroundColor(getComputedStyle(element).backgroundColor);
+      if (theme) return theme;
+      element = element.parentElement;
+    }
+  }
+
+  return null;
+}
+
+function themeFromBackgroundColor(color: string): DeepSeekTheme | null {
+  const rgb = parseRgbColor(color);
+  if (!rgb || rgb.alpha < 0.2) return null;
+  return relativeLuminance(rgb.red, rgb.green, rgb.blue) < 0.45 ? 'dark' : 'light';
+}
+
+function parseRgbColor(color: string): { red: number; green: number; blue: number; alpha: number } | null {
+  const match = color.match(/^rgba?\((.+)\)$/);
+  if (!match) return null;
+
+  const parts = match[1]
+    .replace(/\//g, ' ')
+    .split(/[\s,]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const [red, green, blue] = parts.slice(0, 3).map(Number);
+  const alpha = parts[3] === undefined ? 1 : Number(parts[3]);
+  if ([red, green, blue, alpha].some((part) => Number.isNaN(part))) return null;
+  return { red, green, blue, alpha };
+}
+
+function relativeLuminance(red: number, green: number, blue: number): number {
+  const [r, g, b] = [red, green, blue].map((channel) => {
+    const value = channel / 255;
+    return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
 function forwardAutomationRunToMainWorld(request: AutomationRunnerRequest): Promise<AutomationRunnerResult> {
@@ -724,11 +929,18 @@ function injectToolBlockStyles() {
       white-space: pre-wrap;
       overflow-wrap: anywhere;
     }
+    body.dpp-theme-dark .dpp-tool-block-header { color: rgb(155, 160, 165); }
+    body.dpp-theme-dark .dpp-tool-block-header:hover { color: rgb(200, 205, 210); }
+    body.dpp-theme-dark .dpp-tool-block-item { color: rgb(200, 200, 200); }
+    body.dpp-theme-dark .dpp-tool-block-item-detail {
+      background: rgba(125, 150, 255, 0.12);
+      color: rgb(210, 213, 218);
+    }
     @media (prefers-color-scheme: dark) {
-      .dpp-tool-block-header { color: rgb(155, 160, 165); }
-      .dpp-tool-block-header:hover { color: rgb(200, 205, 210); }
-      .dpp-tool-block-item { color: rgb(200, 200, 200); }
-      .dpp-tool-block-item-detail {
+      body:not(.dpp-theme-light) .dpp-tool-block-header { color: rgb(155, 160, 165); }
+      body:not(.dpp-theme-light) .dpp-tool-block-header:hover { color: rgb(200, 205, 210); }
+      body:not(.dpp-theme-light) .dpp-tool-block-item { color: rgb(200, 200, 200); }
+      body:not(.dpp-theme-light) .dpp-tool-block-item-detail {
         background: rgba(125, 150, 255, 0.12);
         color: rgb(210, 213, 218);
       }
@@ -1285,8 +1497,12 @@ function applyBackground(config: BackgroundConfig | null) {
       background: transparent !important;
     }
 
+    body.dpp-theme-dark #dpp-bg::after {
+      background: var(--dpp-overlay-dark);
+    }
+
     @media (prefers-color-scheme: dark) {
-      #dpp-bg::after {
+      body:not(.dpp-theme-light) #dpp-bg::after {
         background: var(--dpp-overlay-dark);
       }
     }

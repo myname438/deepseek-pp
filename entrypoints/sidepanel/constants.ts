@@ -7,10 +7,10 @@ export const MEMORY_TYPE_CONFIG: {
   bg: string;
   border: string;
 }[] = [
-  { key: 'user', label: '用户', color: '#3B82F6', bg: '#EFF6FF', border: '#BFDBFE' },
-  { key: 'feedback', label: '反馈', color: '#F59E0B', bg: '#FFFBEB', border: '#FDE68A' },
-  { key: 'topic', label: '话题', color: '#8B5CF6', bg: '#F5F3FF', border: '#DDD6FE' },
-  { key: 'reference', label: '参考', color: '#10B981', bg: '#ECFDF5', border: '#A7F3D0' },
+  { key: 'user', label: '用户', color: 'var(--ds-type-user)', bg: 'var(--ds-type-user-bg)', border: 'var(--ds-type-user-border)' },
+  { key: 'feedback', label: '反馈', color: 'var(--ds-type-feedback)', bg: 'var(--ds-type-feedback-bg)', border: 'var(--ds-type-feedback-border)' },
+  { key: 'topic', label: '话题', color: 'var(--ds-type-topic)', bg: 'var(--ds-type-topic-bg)', border: 'var(--ds-type-topic-border)' },
+  { key: 'reference', label: '参考', color: 'var(--ds-type-reference)', bg: 'var(--ds-type-reference-bg)', border: 'var(--ds-type-reference-border)' },
 ];
 
 export const MEMORY_TYPE_MAP = Object.fromEntries(

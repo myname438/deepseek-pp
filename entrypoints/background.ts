@@ -42,7 +42,9 @@ import {
   isAutomationRunnerResult,
 } from '../core/automation/messages';
 import { getModelType, setModelType } from '../core/model/store';
+import { getDeepSeekTheme, saveDeepSeekTheme } from '../core/theme/store';
 import { getBackgroundConfig, saveBackgroundConfig, clearBackgroundConfig } from '../core/background/store';
+import { getExtensionVersion } from '../core/version';
 import { getSyncConfig, saveSyncConfig } from '../core/sync/config';
 import { webdavTest, webdavMkcol, webdavGet, webdavPut } from '../core/sync/webdav-client';
 import { mergeMemories, mergeSkills, mergePresets } from '../core/sync/merge';
@@ -63,7 +65,7 @@ import {
 } from '../core/mcp/store';
 import { refreshMcpServerDiscovery } from '../core/mcp/discovery';
 import { getMcpOriginPattern, requestMcpServerOriginPermission } from '../core/mcp/transports';
-import type { BackgroundConfig, Memory, ModelType, NewMemory, Skill, SyncConfig, SystemPromptPreset, ToolCall } from '../core/types';
+import type { BackgroundConfig, DeepSeekTheme, Memory, ModelType, NewMemory, Skill, SyncConfig, SystemPromptPreset, ToolCall } from '../core/types';
 import type {
   AutomationCreateInput,
   AutomationRun,
@@ -357,7 +359,20 @@ async function handleMessage(
     }
 
     case 'GET_CONFIG':
-      return { version: '0.1.0' };
+      return { version: getExtensionVersion() };
+
+    case 'GET_DEEPSEEK_THEME':
+      return getDeepSeekTheme();
+
+    case 'SET_DEEPSEEK_THEME': {
+      const { theme } = message.payload as { theme?: DeepSeekTheme };
+      if (theme !== 'light' && theme !== 'dark') return { ok: false, error: 'invalid_theme' };
+      const current = await getDeepSeekTheme();
+      if (current === theme) return { ok: true };
+      await saveDeepSeekTheme(theme);
+      await broadcastThemeUpdate(theme, sender.tab?.id);
+      return { ok: true };
+    }
 
     case 'GET_MODEL_TYPE':
       return getModelType();
@@ -476,6 +491,10 @@ async function broadcastStateUpdate(excludeTabId?: number) {
 
 async function broadcastBackgroundUpdate(config: BackgroundConfig | null) {
   await broadcastToTabs({ type: 'BACKGROUND_UPDATED', config });
+}
+
+async function broadcastThemeUpdate(theme: DeepSeekTheme, excludeTabId?: number) {
+  await broadcastToTabs({ type: 'THEME_UPDATED', theme }, excludeTabId);
 }
 
 async function broadcastAutomationUpdate(excludeTabId?: number) {

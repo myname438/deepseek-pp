@@ -1,12 +1,16 @@
 @import 'tailwindcss';
 
 :root {
+  color-scheme: light;
   --ds-blue: #4D6BFE;
   --ds-blue-hover: #3B5BEE;
   --ds-blue-light: #EEF1FF;
   --ds-blue-glow: rgba(77, 107, 254, 0.12);
   --ds-blue-shadow: 0 1px 3px rgba(77, 107, 254, 0.3);
+  --ds-text-on-primary: #FFFFFF;
   --ds-bg: #FFFFFF;
+  --ds-bg-rgb: 255, 255, 255;
+  --ds-card: #FFFFFF;
   --ds-surface: #F7F8FA;
   --ds-border: #E5E7EB;
   --ds-border-hover: #D1D5DB;
@@ -25,6 +29,115 @@
   --ds-success-bg: #ECFDF5;
   --ds-success-border: #A7F3D0;
   --ds-warning: #F59E0B;
+  --ds-warning-bg: #FFFBEB;
+  --ds-warning-border: #FDE68A;
+  --ds-info: #3B82F6;
+  --ds-info-bg: #EFF6FF;
+  --ds-info-border: #BFDBFE;
+  --ds-purple: #8B5CF6;
+  --ds-purple-bg: #F5F3FF;
+  --ds-purple-border: #DDD6FE;
+  --ds-selected-border: rgba(77, 107, 254, 0.24);
+  --ds-switch-thumb: #FFFFFF;
+  --ds-logo-gradient-end: #7C8FFF;
+  --ds-type-user: var(--ds-info);
+  --ds-type-user-bg: var(--ds-info-bg);
+  --ds-type-user-border: var(--ds-info-border);
+  --ds-type-feedback: var(--ds-warning);
+  --ds-type-feedback-bg: var(--ds-warning-bg);
+  --ds-type-feedback-border: var(--ds-warning-border);
+  --ds-type-topic: var(--ds-purple);
+  --ds-type-topic-bg: var(--ds-purple-bg);
+  --ds-type-topic-border: var(--ds-purple-border);
+  --ds-type-reference: var(--ds-success);
+  --ds-type-reference-bg: var(--ds-success-bg);
+  --ds-type-reference-border: var(--ds-success-border);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --ds-blue: #7D91FF;
+    --ds-blue-hover: #91A2FF;
+    --ds-blue-light: rgba(125, 145, 255, 0.16);
+    --ds-blue-glow: rgba(125, 145, 255, 0.22);
+    --ds-blue-shadow: 0 1px 8px rgba(77, 107, 254, 0.28);
+    --ds-text-on-primary: #FFFFFF;
+    --ds-bg: #101217;
+    --ds-bg-rgb: 16, 18, 23;
+    --ds-card: #151922;
+    --ds-surface: #1B202A;
+    --ds-border: #2B3240;
+    --ds-border-hover: #3B4556;
+    --ds-text: #E9EDF5;
+    --ds-text-secondary: #B5BDCB;
+    --ds-text-tertiary: #838C9D;
+    --ds-shadow-sm: none;
+    --ds-shadow-md: none;
+    --ds-shadow-lg: none;
+    --ds-danger: #FF7B7B;
+    --ds-danger-bg: rgba(239, 68, 68, 0.14);
+    --ds-danger-bg-hover: rgba(239, 68, 68, 0.2);
+    --ds-danger-border: rgba(255, 123, 123, 0.28);
+    --ds-danger-border-hover: rgba(255, 123, 123, 0.4);
+    --ds-success: #38D39F;
+    --ds-success-bg: rgba(16, 185, 129, 0.14);
+    --ds-success-border: rgba(56, 211, 159, 0.28);
+    --ds-warning: #F6B44B;
+    --ds-warning-bg: rgba(245, 158, 11, 0.14);
+    --ds-warning-border: rgba(246, 180, 75, 0.28);
+    --ds-info: #7DB0FF;
+    --ds-info-bg: rgba(59, 130, 246, 0.16);
+    --ds-info-border: rgba(125, 176, 255, 0.3);
+    --ds-purple: #B79BFF;
+    --ds-purple-bg: rgba(139, 92, 246, 0.16);
+    --ds-purple-border: rgba(183, 155, 255, 0.3);
+    --ds-selected-border: rgba(125, 145, 255, 0.36);
+    --ds-switch-thumb: #FFFFFF;
+    --ds-logo-gradient-end: #A7B4FF;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ds-blue: #7D91FF;
+  --ds-blue-hover: #91A2FF;
+  --ds-blue-light: rgba(125, 145, 255, 0.16);
+  --ds-blue-glow: rgba(125, 145, 255, 0.22);
+  --ds-blue-shadow: 0 1px 8px rgba(77, 107, 254, 0.28);
+  --ds-text-on-primary: #FFFFFF;
+  --ds-bg: #101217;
+  --ds-bg-rgb: 16, 18, 23;
+  --ds-card: #151922;
+  --ds-surface: #1B202A;
+  --ds-border: #2B3240;
+  --ds-border-hover: #3B4556;
+  --ds-text: #E9EDF5;
+  --ds-text-secondary: #B5BDCB;
+  --ds-text-tertiary: #838C9D;
+  --ds-shadow-sm: none;
+  --ds-shadow-md: none;
+  --ds-shadow-lg: none;
+  --ds-danger: #FF7B7B;
+  --ds-danger-bg: rgba(239, 68, 68, 0.14);
+  --ds-danger-bg-hover: rgba(239, 68, 68, 0.2);
+  --ds-danger-border: rgba(255, 123, 123, 0.28);
+  --ds-danger-border-hover: rgba(255, 123, 123, 0.4);
+  --ds-success: #38D39F;
+  --ds-success-bg: rgba(16, 185, 129, 0.14);
+  --ds-success-border: rgba(56, 211, 159, 0.28);
+  --ds-warning: #F6B44B;
+  --ds-warning-bg: rgba(245, 158, 11, 0.14);
+  --ds-warning-border: rgba(246, 180, 75, 0.28);
+  --ds-info: #7DB0FF;
+  --ds-info-bg: rgba(59, 130, 246, 0.16);
+  --ds-info-border: rgba(125, 176, 255, 0.3);
+  --ds-purple: #B79BFF;
+  --ds-purple-bg: rgba(139, 92, 246, 0.16);
+  --ds-purple-border: rgba(183, 155, 255, 0.3);
+  --ds-selected-border: rgba(125, 145, 255, 0.36);
+  --ds-switch-thumb: #FFFFFF;
+  --ds-logo-gradient-end: #A7B4FF;
 }
 
 body {
@@ -84,6 +197,17 @@ input:focus, textarea:focus {
 
 input::placeholder, textarea::placeholder {
   color: var(--ds-text-tertiary);
+}
+
+input,
+textarea,
+select {
+  color-scheme: inherit;
+}
+
+input[type='checkbox'],
+input[type='range'] {
+  accent-color: var(--ds-blue);
 }
 
 /* Top tabs */
@@ -199,7 +323,7 @@ input::placeholder, textarea::placeholder {
 
 /* Card */
 .ds-card {
-  background: var(--ds-bg);
+  background: var(--ds-card);
   border: 1px solid var(--ds-border);
   box-shadow: var(--ds-shadow-sm);
   transition: all 0.15s;
@@ -211,7 +335,7 @@ input::placeholder, textarea::placeholder {
 
 /* Form container */
 .ds-form {
-  background: var(--ds-bg);
+  background: var(--ds-card);
   border: 1px solid var(--ds-blue);
   box-shadow: 0 0 0 3px var(--ds-blue-glow);
 }
@@ -232,6 +356,7 @@ input::placeholder, textarea::placeholder {
 /* Buttons */
 .ds-btn-primary {
   background: var(--ds-blue);
+  color: var(--ds-text-on-primary);
   box-shadow: var(--ds-blue-shadow);
 }
 .ds-btn-primary:hover {
@@ -314,6 +439,18 @@ input::placeholder, textarea::placeholder {
   border: 1px solid var(--ds-success-border);
 }
 
+.ds-badge-info {
+  color: var(--ds-info);
+  background: var(--ds-info-bg);
+  border: 1px solid var(--ds-info-border);
+}
+
+.ds-badge-warning {
+  color: var(--ds-warning);
+  background: var(--ds-warning-bg);
+  border: 1px solid var(--ds-warning-border);
+}
+
 /* Trigger code */
 .ds-trigger {
   color: var(--ds-blue);
@@ -323,5 +460,10 @@ input::placeholder, textarea::placeholder {
 /* Info panel */
 .ds-info-panel {
   background: var(--ds-blue-light);
-  border: 1px solid rgba(77, 107, 254, 0.1);
+  border: 1px solid var(--ds-selected-border);
+}
+
+.ds-switch-thumb {
+  background: var(--ds-switch-thumb);
+  box-shadow: var(--ds-shadow-sm);
 }

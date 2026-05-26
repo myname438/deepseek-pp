@@ -5,6 +5,7 @@ import PresetPage from './pages/PresetPage';
 import SettingsPage from './pages/SettingsPage';
 import AutomationPage from './pages/AutomationPage';
 import McpPage from './pages/McpPage';
+import { getExtensionVersion } from '../../core/version';
 
 type Tab = 'memory' | 'skill' | 'preset' | 'automation' | 'mcp' | 'settings';
 
@@ -19,6 +20,7 @@ const TABS: { key: Tab; label: string; icon: string }[] = [
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('memory');
+  const version = getExtensionVersion();
 
   return (
     <div className="flex flex-col h-screen" style={{ background: 'var(--ds-bg)' }}>
@@ -37,7 +39,7 @@ export default function App() {
           </h1>
         </div>
         <span className="text-[11px] px-2 py-0.5 rounded-full" style={{ color: 'var(--ds-text-tertiary)', background: 'var(--ds-surface)' }}>
-          v0.1.0
+          v{version}
         </span>
       </header>
 

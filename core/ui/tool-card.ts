@@ -317,25 +317,56 @@ const TOOL_CARD_CSS = `
   white-space: pre-wrap;
 }
 
+body.dpp-theme-dark .dpp-tool-card {
+  background: #1F1F1F;
+  border-color: #2E2E2E;
+  box-shadow: none;
+}
+body.dpp-theme-dark .dpp-tool-card:hover { border-color: #3A3A3A; }
+body.dpp-theme-dark .dpp-tool-card[data-state="success"] { border-color: #134E32; }
+body.dpp-theme-dark .dpp-tool-card[data-state="error"]   { border-color: #4C1F1F; }
+body.dpp-theme-dark .dpp-tc-header { background: #262626; border-bottom-color: transparent; }
+body.dpp-theme-dark .dpp-tool-card[data-collapsed="false"] .dpp-tc-header { border-bottom-color: #2E2E2E; }
+body.dpp-theme-dark .dpp-tc-header:hover { background: #2E2E2E; }
+body.dpp-theme-dark .dpp-tc-icon { background: rgba(77, 107, 254, 0.15); }
+body.dpp-theme-dark .dpp-tool-card[data-state="success"] .dpp-tc-icon { background: rgba(16, 185, 129, 0.15); }
+body.dpp-theme-dark .dpp-tool-card[data-state="error"]   .dpp-tc-icon { background: rgba(239, 68, 68, 0.15); }
+body.dpp-theme-dark .dpp-tc-name,
+body.dpp-theme-dark .dpp-tc-payload,
+body.dpp-theme-dark .dpp-tc-value,
+body.dpp-theme-dark .dpp-tc-result { color: #E5E5E5; }
+body.dpp-theme-dark .dpp-tc-key,
+body.dpp-theme-dark .dpp-tc-status,
+body.dpp-theme-dark .dpp-tc-label,
+body.dpp-theme-dark .dpp-tc-payload-empty { color: #9CA3AF; }
+body.dpp-theme-dark .dpp-tc-section + .dpp-tc-section { border-top-color: #2E2E2E; }
+body.dpp-theme-dark .dpp-tc-spinner { border-color: #3A3A3A; border-top-color: #4D6BFE; }
+
 @media (prefers-color-scheme: dark) {
-  .dpp-tool-card {
+  body:not(.dpp-theme-light) .dpp-tool-card {
     background: #1F1F1F;
     border-color: #2E2E2E;
     box-shadow: none;
   }
-  .dpp-tool-card:hover { border-color: #3A3A3A; }
-  .dpp-tool-card[data-state="success"] { border-color: #134E32; }
-  .dpp-tool-card[data-state="error"]   { border-color: #4C1F1F; }
-  .dpp-tc-header { background: #262626; border-bottom-color: transparent; }
-  .dpp-tool-card[data-collapsed="false"] .dpp-tc-header { border-bottom-color: #2E2E2E; }
-  .dpp-tc-header:hover { background: #2E2E2E; }
-  .dpp-tc-icon { background: rgba(77, 107, 254, 0.15); }
-  .dpp-tool-card[data-state="success"] .dpp-tc-icon { background: rgba(16, 185, 129, 0.15); }
-  .dpp-tool-card[data-state="error"]   .dpp-tc-icon { background: rgba(239, 68, 68, 0.15); }
-  .dpp-tc-name, .dpp-tc-payload, .dpp-tc-value, .dpp-tc-result { color: #E5E5E5; }
-  .dpp-tc-key, .dpp-tc-status, .dpp-tc-label, .dpp-tc-payload-empty { color: #9CA3AF; }
-  .dpp-tc-section + .dpp-tc-section { border-top-color: #2E2E2E; }
-  .dpp-tc-spinner { border-color: #3A3A3A; border-top-color: #4D6BFE; }
+  body:not(.dpp-theme-light) .dpp-tool-card:hover { border-color: #3A3A3A; }
+  body:not(.dpp-theme-light) .dpp-tool-card[data-state="success"] { border-color: #134E32; }
+  body:not(.dpp-theme-light) .dpp-tool-card[data-state="error"]   { border-color: #4C1F1F; }
+  body:not(.dpp-theme-light) .dpp-tc-header { background: #262626; border-bottom-color: transparent; }
+  body:not(.dpp-theme-light) .dpp-tool-card[data-collapsed="false"] .dpp-tc-header { border-bottom-color: #2E2E2E; }
+  body:not(.dpp-theme-light) .dpp-tc-header:hover { background: #2E2E2E; }
+  body:not(.dpp-theme-light) .dpp-tc-icon { background: rgba(77, 107, 254, 0.15); }
+  body:not(.dpp-theme-light) .dpp-tool-card[data-state="success"] .dpp-tc-icon { background: rgba(16, 185, 129, 0.15); }
+  body:not(.dpp-theme-light) .dpp-tool-card[data-state="error"]   .dpp-tc-icon { background: rgba(239, 68, 68, 0.15); }
+  body:not(.dpp-theme-light) .dpp-tc-name,
+  body:not(.dpp-theme-light) .dpp-tc-payload,
+  body:not(.dpp-theme-light) .dpp-tc-value,
+  body:not(.dpp-theme-light) .dpp-tc-result { color: #E5E5E5; }
+  body:not(.dpp-theme-light) .dpp-tc-key,
+  body:not(.dpp-theme-light) .dpp-tc-status,
+  body:not(.dpp-theme-light) .dpp-tc-label,
+  body:not(.dpp-theme-light) .dpp-tc-payload-empty { color: #9CA3AF; }
+  body:not(.dpp-theme-light) .dpp-tc-section + .dpp-tc-section { border-top-color: #2E2E2E; }
+  body:not(.dpp-theme-light) .dpp-tc-spinner { border-color: #3A3A3A; border-top-color: #4D6BFE; }
 }
 
 .dpp-dsml-hidden { display: none !important; }

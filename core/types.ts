@@ -68,6 +68,8 @@ export type MemoryType = 'user' | 'feedback' | 'topic' | 'reference';
 
 export type ModelType = 'expert' | null;
 
+export type DeepSeekTheme = 'light' | 'dark';
+
 export interface BackgroundConfig {
   enabled: boolean;
   type: 'upload' | 'url';
@@ -209,6 +211,8 @@ export type MessageAction =
   | { type: 'GET_TOOL_CALL_HISTORY'; payload?: { limit?: number } }
   | { type: 'CLEAR_TOOL_CALL_HISTORY' }
   | { type: 'GET_CONFIG' }
+  | { type: 'GET_DEEPSEEK_THEME' }
+  | { type: 'SET_DEEPSEEK_THEME'; payload: { theme: DeepSeekTheme } }
   | { type: 'GET_MODEL_TYPE' }
   | { type: 'SET_MODEL_TYPE'; payload: ModelType }
   | { type: 'TOOL_CALL_EXECUTED'; payload: ToolCall }

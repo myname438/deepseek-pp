@@ -187,14 +187,49 @@ function injectStyles() {
   const style = document.createElement('style');
   style.id = 'dpp-skill-popup-css';
   style.textContent = `
+:root {
+  --dpp-skill-popup-bg: #FFFFFF;
+  --dpp-skill-popup-surface: #F7F8FA;
+  --dpp-skill-popup-border: #E5E7EB;
+  --dpp-skill-popup-divider: #F3F4F6;
+  --dpp-skill-popup-trigger-bg: #EEF1FF;
+  --dpp-skill-popup-trigger: #4D6BFE;
+  --dpp-skill-popup-desc: #9CA3AF;
+  --dpp-skill-popup-hint: #D1D5DB;
+  --dpp-skill-popup-shadow: 0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+}
+body.dpp-theme-dark {
+  --dpp-skill-popup-bg: #151922;
+  --dpp-skill-popup-surface: #1B202A;
+  --dpp-skill-popup-border: #2B3240;
+  --dpp-skill-popup-divider: #2B3240;
+  --dpp-skill-popup-trigger-bg: rgba(125, 145, 255, 0.16);
+  --dpp-skill-popup-trigger: #7D91FF;
+  --dpp-skill-popup-desc: #B5BDCB;
+  --dpp-skill-popup-hint: #838C9D;
+  --dpp-skill-popup-shadow: none;
+}
+@media (prefers-color-scheme: dark) {
+  body:not(.dpp-theme-light) {
+    --dpp-skill-popup-bg: #151922;
+    --dpp-skill-popup-surface: #1B202A;
+    --dpp-skill-popup-border: #2B3240;
+    --dpp-skill-popup-divider: #2B3240;
+    --dpp-skill-popup-trigger-bg: rgba(125, 145, 255, 0.16);
+    --dpp-skill-popup-trigger: #7D91FF;
+    --dpp-skill-popup-desc: #B5BDCB;
+    --dpp-skill-popup-hint: #838C9D;
+    --dpp-skill-popup-shadow: none;
+  }
+}
 .dpp-skill-popup {
   position: fixed;
   z-index: 99999;
-  background: #FFFFFF;
-  border: 1px solid #E5E7EB;
+  background: var(--dpp-skill-popup-bg);
+  border: 1px solid var(--dpp-skill-popup-border);
   border-radius: 12px;
   padding: 4px;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04);
+  box-shadow: var(--dpp-skill-popup-shadow);
   display: none;
   animation: dpp-slide-up .15s ease;
   font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
@@ -214,7 +249,7 @@ function injectStyles() {
   transition: background .1s;
 }
 .dpp-skill-item.dpp-active {
-  background: #F7F8FA;
+  background: var(--dpp-skill-popup-surface);
 }
 .dpp-skill-head {
   display: flex;
@@ -222,25 +257,25 @@ function injectStyles() {
   gap: 8px;
 }
 .dpp-skill-trigger {
-  color: #4D6BFE;
+  color: var(--dpp-skill-popup-trigger);
   font-size: 13px;
   font-family: 'SF Mono', Monaco, Consolas, monospace;
   font-weight: 600;
-  background: #EEF1FF;
+  background: var(--dpp-skill-popup-trigger-bg);
   padding: 1px 6px;
   border-radius: 4px;
 }
 .dpp-skill-desc {
-  color: #9CA3AF;
+  color: var(--dpp-skill-popup-desc);
   font-size: 11px;
   margin-top: 2px;
 }
 .dpp-skill-hint {
   text-align: center;
-  color: #D1D5DB;
+  color: var(--dpp-skill-popup-hint);
   font-size: 10px;
   padding: 4px 0 2px;
-  border-top: 1px solid #F3F4F6;
+  border-top: 1px solid var(--dpp-skill-popup-divider);
   margin-top: 4px;
 }
 `;

@@ -2,10 +2,24 @@ import { defineConfig, type ConfigEnv, type UserManifest } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const safeWxtBrowser = resolve(rootDir, 'core/browser/safe-wxt-browser.ts');
 const CHROMIUM_BROWSERS = new Set(['chrome', 'edge']);
+const extensionVersion = readPackageVersion();
+
+function readPackageVersion(): string {
+  const packageJson = JSON.parse(
+    readFileSync(resolve(rootDir, 'package.json'), 'utf8'),
+  ) as { version?: unknown };
+
+  if (typeof packageJson.version !== 'string' || packageJson.version.length === 0) {
+    throw new Error('package.json version is required for extension manifest');
+  }
+
+  return packageJson.version;
+}
 
 function createManifest(env: ConfigEnv): UserManifest {
   const isFirefox = env.browser === 'firefox';
@@ -15,7 +29,7 @@ function createManifest(env: ConfigEnv): UserManifest {
   return {
     name: 'DeepSeek++',
     description: 'Agentic memory, skill, automation, and MCP tools for DeepSeek',
-    version: '0.2.0',
+    version: extensionVersion,
     permissions: isChromiumTarget ? [...permissions, 'sidePanel'] : permissions,
     optional_host_permissions: ['http://*/*', 'https://*/*'],
     host_permissions: ['*://chat.deepseek.com/*'],

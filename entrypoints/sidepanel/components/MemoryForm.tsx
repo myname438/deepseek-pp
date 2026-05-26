@@ -39,7 +39,7 @@ export default function MemoryForm({ initial, onSave, onCancel }: Props) {
             style={{
               background: type === t.key ? t.bg : 'var(--ds-surface)',
               color: type === t.key ? t.color : 'var(--ds-text-tertiary)',
-              border: `1px solid ${type === t.key ? t.color + '33' : 'var(--ds-border)'}`,
+              border: `1px solid ${type === t.key ? t.border : 'var(--ds-border)'}`,
             }}
           >
             {t.label}

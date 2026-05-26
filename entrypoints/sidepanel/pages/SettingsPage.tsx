@@ -321,7 +321,7 @@ export default function SettingsPage() {
               }}
             >
               <span
-                className="absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
                 style={{
                   transform: expertMode ? 'translateX(18px)' : 'translateX(0)',
                 }}
@@ -355,7 +355,7 @@ export default function SettingsPage() {
               }}
             >
               <span
-                className="absolute top-[3px] left-[3px] w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+                className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
                 style={{
                   transform: bgEnabled && bgPreview ? 'translateX(18px)' : 'translateX(0)',
                 }}
@@ -415,7 +415,7 @@ export default function SettingsPage() {
               <div
                 className="absolute inset-0 flex items-center justify-center text-[10px]"
                 style={{
-                  background: `rgba(255,255,255,${(1 - bgOpacity).toFixed(3)})`,
+                  background: `rgba(var(--ds-bg-rgb), ${(1 - bgOpacity).toFixed(3)})`,
                   backdropFilter: `blur(${((1 - bgOpacity) * 8).toFixed(1)}px)`,
                   WebkitBackdropFilter: `blur(${((1 - bgOpacity) * 8).toFixed(1)}px)`,
                   color: 'var(--ds-text-secondary)',
@@ -543,7 +543,7 @@ export default function SettingsPage() {
             className="ds-btn-secondary flex-1 py-2.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center justify-center gap-1.5 disabled:opacity-40"
             style={
               syncConfig.url && syncStatus !== 'testing' && syncStatus !== 'syncing'
-                ? { background: 'var(--ds-blue)', color: '#fff', borderColor: 'var(--ds-blue)' }
+                ? { background: 'var(--ds-blue)', color: 'var(--ds-text-on-primary)', borderColor: 'var(--ds-blue)' }
                 : undefined
             }
           >
@@ -566,8 +566,8 @@ export default function SettingsPage() {
           <div
             className="text-[11px] px-3 py-2 rounded-lg"
             style={{
-              color: syncStatus === 'error' ? '#EF4444' : '#10B981',
-              background: syncStatus === 'error' ? '#FEF2F2' : '#ECFDF5',
+              color: syncStatus === 'error' ? 'var(--ds-danger)' : 'var(--ds-success)',
+              background: syncStatus === 'error' ? 'var(--ds-danger-bg)' : 'var(--ds-success-bg)',
             }}
           >
             {syncMessage}
@@ -630,7 +630,7 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2.5">
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-[11px] font-bold"
-              style={{ background: 'linear-gradient(135deg, var(--ds-blue), #7C8FFF)' }}
+              style={{ background: 'linear-gradient(135deg, var(--ds-blue), var(--ds-logo-gradient-end))' }}
             >
               D+
             </div>

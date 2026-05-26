@@ -20,13 +20,11 @@ import type {
   McpServerConfig,
   McpToolDefinition,
 } from './types';
+import { getExtensionVersion } from '../version';
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18';
 
-const CLIENT_INFO = {
-  name: 'DeepSeek++',
-  version: '0.1.0',
-};
+const CLIENT_NAME = 'DeepSeek++';
 
 export class McpProtocolError extends Error {
   readonly code: string;
@@ -69,7 +67,10 @@ export async function initializeMcpServer(
       capabilities: {
         tools: {},
       },
-      clientInfo: CLIENT_INFO,
+      clientInfo: {
+        name: CLIENT_NAME,
+        version: getExtensionVersion(),
+      },
     }),
     { timeoutMs: server.timeouts.connectMs },
   );

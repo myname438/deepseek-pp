@@ -90,7 +90,7 @@ export default function MemoryPage() {
                 background: filter === t.key ? 'var(--ds-blue-light)' : 'var(--ds-surface)',
                 color: filter === t.key ? 'var(--ds-blue)' : 'var(--ds-text-secondary)',
                 fontWeight: filter === t.key ? 500 : 400,
-                border: `1px solid ${filter === t.key ? 'rgba(77,107,254,0.2)' : 'var(--ds-border)'}`,
+                border: `1px solid ${filter === t.key ? 'var(--ds-selected-border)' : 'var(--ds-border)'}`,
               }}
             >
               {t.label}

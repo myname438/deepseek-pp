@@ -651,7 +651,7 @@ function ServerRow({
   return (
     <div
       className="ds-card rounded-lg p-3 cursor-pointer"
-      style={{ borderColor: selected ? 'rgba(77,107,254,0.35)' : undefined }}
+      style={{ borderColor: selected ? 'var(--ds-selected-border)' : undefined }}
       onClick={onSelect}
     >
       <div className="flex items-start justify-between gap-2">

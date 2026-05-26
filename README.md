@@ -90,7 +90,23 @@
 - 运行超时后不会自动重复发送同一条 prompt，避免 DeepSeek 页面仍在执行时产生重复消息
 - 从源码更新后需要在对应浏览器扩展管理页重新加载当前目标目录，再验证侧边栏「自动化」页
 
-## 0.2.0 变更回顾
+## 0.3.0 变更回顾
+
+0.3.0 以 0.2.0 的 MCP 和自动化平台为基线，重点把扩展从 Chrome 单目标发布推进到 Chrome / Edge / Firefox 多浏览器交付，并补齐主题一致性、版本展示和发布资产链路。
+
+| 方向 | 主要变化 |
+|------|----------|
+| 跨浏览器支持 | 新增 Chrome、Edge、Firefox MV3 构建与打包脚本；WXT manifest 会按目标浏览器生成权限、`sidePanel`/侧栏入口和 Firefox Gecko ID，避免把 Chromium-only API 发到 Firefox。 |
+| 发布流程 | Release workflow 改为执行 `zip:all`，一次上传 Chrome / Edge / Firefox 三个浏览器 zip；安装文档、MCP 操作说明和 mock 验证说明也改成浏览器中立口径。 |
+| 侧边栏体验 | 侧边栏顶部导航改为稳定的 tab 组件，补齐图标、当前页语义和紧凑布局，适配更多浏览器侧栏宽度。 |
+| 深浅色一致性 | Content Script 会检测 DeepSeek 页面主题并同步到侧边栏；记忆、MCP、设置、Skill 弹窗、工具执行卡片和自定义背景遮罩都改为主题 token 驱动。 |
+| 版本一致性 | `package.json`、lockfile、WXT manifest 和运行时展示同步到 0.3.0；侧边栏右上角、设置页底部和 MCP clientInfo 都从扩展 manifest 读取版本，不再保留旧的 0.1.0 硬编码。 |
+| 文档归档 | 将 MCP rollout 文档迁入 `docs/archives/deepseek-mcp-support/`，新增 Edge/Firefox 支持归档，保留验证和后续手动测试线索。 |
+
+<details>
+<summary>展开 0.2.0 变更回顾</summary>
+
+### 0.2.0 变更回顾
 
 0.2.0 汇总了 0.1.0 以来的所有主要增量，重点是把 DeepSeek++ 从“记忆 + Skill”扩展升级为完整的浏览器端工具平台。
 
@@ -108,6 +124,8 @@
   <img src="assets/screenshot-sidepanel-mcp.svg" width="300" alt="MCP 管理侧边栏">
   <img src="assets/screenshot-sidepanel-automation.svg" width="300" alt="自动化任务侧边栏">
 </p>
+
+</details>
 
 ## 工作原理
 
