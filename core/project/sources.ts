@@ -111,7 +111,7 @@ export async function fetchGitHubProjectFiles(
     const rawUrl = `https://raw.githubusercontent.com/${resolvedSource.owner}/${resolvedSource.repo}/${encodeURIComponent(resolvedSource.ref).replace(/%2F/g, '/')}/${item.path.split('/').map(encodeURIComponent).join('/')}`;
     const response = await fetchImpl(rawUrl, { headers: options.token ? { Authorization: `Bearer ${options.token.trim()}` } : undefined });
     if (!response.ok) {
-      warnings.push(`Skipped ${relativePath}: HTTP ${response.status}`);
+      warnings.push(`Skipped ${relativePath}: ${formatGitHubHttpError(response.status)}`);
       continue;
     }
     const content = await response.text();
@@ -190,10 +190,20 @@ async function fetchTree(
   const url = `https://api.github.com/repos/${source.owner}/${source.repo}/git/trees/${encodeURIComponent(source.ref).replace(/%2F/g, '/')}?recursive=1`;
   const response = await fetchImpl(url, { headers });
   if (response.status === 404) return null;
-  if (!response.ok) throw new Error(`GitHub API returned HTTP ${response.status}.`);
+  if (!response.ok) throw new Error(formatGitHubHttpError(response.status));
   const json = await response.json();
   if (!json || typeof json !== 'object' || !Array.isArray((json as { tree?: unknown }).tree)) {
     throw new Error('GitHub tree response is invalid.');
   }
   return json as { tree: Array<{ path?: string; type?: string; size?: number }> };
+}
+
+function formatGitHubHttpError(status: number): string {
+  if (status === 401) {
+    return 'GitHub authentication failed. Check that the token is valid and has repository read access.';
+  }
+  if (status === 403) {
+    return 'GitHub API returned HTTP 403. The repository may require authentication, or the anonymous API rate limit may be exhausted. Enter a GitHub token with repository read access and try again.';
+  }
+  return `GitHub API returned HTTP ${status}.`;
 }

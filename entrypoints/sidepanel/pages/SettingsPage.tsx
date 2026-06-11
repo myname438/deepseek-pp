@@ -15,6 +15,7 @@ import { SVG_PATHS } from '../constants';
 import { getChatEnabled, setChatEnabled } from '../../../core/chat/store';
 import { validateImportedMemory } from '../../../core/sync/schema';
 import DeveloperSettingsPanel from '../components/DeveloperSettingsPanel';
+import PageIntro from '../components/PageIntro';
 import PromptControlPanel from '../components/PromptControlPanel';
 import ScenarioManager from '../components/ScenarioManager';
 import VoiceSettingsPanel from '../components/VoiceSettingsPanel';
@@ -497,6 +498,12 @@ export default function SettingsPage() {
   return (
     <div className="p-4 space-y-5">
       <WhatsNewPanel />
+
+      <PageIntro
+        title={t('sidepanel.settings.title')}
+        description={t('sidepanel.settings.description')}
+        meta={version ? `v${version}` : undefined}
+      />
 
       <section className="space-y-3">
         <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>

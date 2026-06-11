@@ -262,11 +262,12 @@ function getAgentRendererLabels() {
 
 function getHistoryOrganizerLabels() {
   return {
-    title: contentT('content.historyOrganizer.title'),
-    searchPlaceholder: contentT('content.historyOrganizer.searchPlaceholder'),
+    enhancedSearchTitle: contentT('content.historyOrganizer.enhancedSearchTitle'),
+    tagFilterLabel: contentT('content.historyOrganizer.tagFilterLabel'),
     tagPlaceholder: contentT('content.historyOrganizer.tagPlaceholder'),
+    currentTagsLabel: contentT('content.historyOrganizer.currentTagsLabel'),
     currentTagsPlaceholder: contentT('content.historyOrganizer.currentTagsPlaceholder'),
-    noHistoryDetected: contentT('content.historyOrganizer.noHistoryDetected'),
+    emptySearchStatus: contentT('content.historyOrganizer.emptySearchStatus'),
     visibleStatus: (visibleCount: number, totalCount: number) =>
       contentT('content.historyOrganizer.visibleStatus', { visible: visibleCount, total: totalCount }),
     storageError: (action: 'load' | 'save', message: string) =>

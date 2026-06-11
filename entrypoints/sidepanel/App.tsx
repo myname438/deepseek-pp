@@ -6,26 +6,20 @@ import { DEFAULT_DEVELOPER_SETTINGS, normalizeDeveloperSettings, type DeveloperS
 import { useI18n } from './i18n';
 import { setPendingText } from './pending-text';
 
-type Tab = 'chat' | 'memory' | 'projects' | 'saved' | 'capabilities' | 'preset' | 'automation' | 'developer' | 'settings';
+type Tab = 'chat' | 'library' | 'projects' | 'capabilities' | 'developer' | 'settings';
 
-const MemoryPage = lazy(() => import('./pages/MemoryPage'));
+const LibraryPage = lazy(() => import('./pages/LibraryPage'));
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'));
-const SavedPage = lazy(() => import('./pages/SavedPage'));
-const PresetPage = lazy(() => import('./pages/PresetPage'));
 const SettingsPage = lazy(() => import('./pages/SettingsPage'));
-const AutomationPage = lazy(() => import('./pages/AutomationPage'));
 const CapabilitiesPage = lazy(() => import('./pages/CapabilitiesPage'));
 const ChatPage = lazy(() => import('./pages/ChatPage'));
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'));
 
 const TABS: { key: Tab; labelKey: LocaleMessageKey; icon: string }[] = [
   { key: 'chat', labelKey: 'app.tabs.chat', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
-  { key: 'memory', labelKey: 'app.tabs.memory', icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z' },
+  { key: 'library', labelKey: 'app.tabs.library', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5s3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18s-3.332.477-4.5 1.253' },
   { key: 'projects', labelKey: 'app.tabs.projects', icon: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z' },
-  { key: 'saved', labelKey: 'app.tabs.saved', icon: 'M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-4-7 4V5z' },
   { key: 'capabilities', labelKey: 'app.tabs.capabilities', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
-  { key: 'preset', labelKey: 'app.tabs.preset', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-  { key: 'automation', labelKey: 'app.tabs.automation', icon: 'M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z' },
   { key: 'developer', labelKey: 'app.tabs.developer', icon: 'M8 9l3 3-3 3m5 0h3M5 5h14a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2z' },
   { key: 'settings', labelKey: 'app.tabs.settings', icon: 'M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
 ];
@@ -63,7 +57,7 @@ export default function App() {
 
   useEffect(() => {
     if (chatEnabled === false && tab === 'chat') {
-      setTab('memory');
+      setTab('library');
     }
     if (!developerSettings.developerMode && tab === 'developer') {
       setTab('settings');
@@ -150,19 +144,16 @@ export default function App() {
       <main className="flex-1 overflow-y-auto">
         <Suspense fallback={<div className="p-4 text-sm" style={{ color: 'var(--ds-text-tertiary)' }}>{t('common.loading')}</div>}>
           {tab === 'chat' && <ChatPage />}
-          {tab === 'memory' && <MemoryPage />}
-          {tab === 'projects' && <ProjectsPage />}
-          {tab === 'saved' && (
-            <SavedPage
+          {tab === 'library' && (
+            <LibraryPage
               onInsertPrompt={(text) => {
                 setPendingText(text);
                 setTab('chat');
               }}
             />
           )}
+          {tab === 'projects' && <ProjectsPage />}
           {tab === 'capabilities' && <CapabilitiesPage />}
-          {tab === 'preset' && <PresetPage />}
-          {tab === 'automation' && <AutomationPage />}
           {tab === 'developer' && <DeveloperPage />}
           {tab === 'settings' && <SettingsPage />}
         </Suspense>

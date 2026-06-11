@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ProjectContext, ProjectContextState, ProjectFile } from '../../../core/types';
+import PageIntro from '../components/PageIntro';
 import { requestGitHubProjectImportPermission } from '../github-permission';
 import { useI18n } from '../i18n';
 
@@ -11,17 +12,22 @@ export default function ProjectsPage() {
   const [name, setName] = useState('');
   const [instructions, setInstructions] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
+  const [githubToken, setGithubToken] = useState('');
   const [manualPath, setManualPath] = useState('notes.md');
   const [manualContent, setManualContent] = useState('');
   const [importState, setImportState] = useState<ImportState>('idle');
   const [message, setMessage] = useState('');
+  const [statusMessage, setStatusMessage] = useState('');
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    void load();
+    void load().catch(showProjectError);
     const handler = (msg: { type?: string; state?: ProjectContextState }) => {
       if (msg.type === 'PROJECT_CONTEXT_UPDATED') {
-        setState(msg.state ?? null);
+        if (isProjectContextState(msg.state)) {
+          setState(msg.state);
+          setStatusMessage('');
+        }
       }
     };
     chrome.runtime.onMessage.addListener(handler);
@@ -38,49 +44,82 @@ export default function ProjectsPage() {
   );
 
   async function load() {
-    const next = await chrome.runtime.sendMessage({ type: 'GET_PROJECT_CONTEXT_STATE' }) as ProjectContextState;
+    const response = await chrome.runtime.sendMessage({ type: 'GET_PROJECT_CONTEXT_STATE' });
+    const next = unwrapProjectResponse<ProjectContextState>(
+      response,
+      t('sidepanel.projectsPage.backendUnavailable'),
+    );
+    if (!isProjectContextState(next)) {
+      throw new Error(t('sidepanel.projectsPage.backendUnavailable'));
+    }
     setState(next);
+    return next;
   }
 
   async function createProject() {
     if (!name.trim()) return;
-    await chrome.runtime.sendMessage({
-      type: 'CREATE_PROJECT_CONTEXT',
-      payload: { name, instructions },
-    });
-    setName('');
-    setInstructions('');
-    await load();
+    try {
+      setStatusMessage('');
+      const response = await chrome.runtime.sendMessage({
+        type: 'CREATE_PROJECT_CONTEXT',
+        payload: { name, instructions },
+      });
+      const project = unwrapProjectResponse<ProjectContext>(
+        response,
+        t('sidepanel.projectsPage.backendUnavailable'),
+      );
+      if (!isProjectContext(project)) {
+        throw new Error(t('sidepanel.projectsPage.backendUnavailable'));
+      }
+      setName('');
+      setInstructions('');
+      await load();
+    } catch (error) {
+      showProjectError(error);
+    }
   }
 
   async function setActive(projectId: string | null) {
-    await chrome.runtime.sendMessage({
-      type: 'SET_ACTIVE_PROJECT_CONTEXT',
-      payload: { projectId },
-    });
-    await load();
+    try {
+      unwrapProjectResponse(await chrome.runtime.sendMessage({
+        type: 'SET_ACTIVE_PROJECT_CONTEXT',
+        payload: { projectId },
+      }), t('sidepanel.projectsPage.backendUnavailable'));
+      await load();
+    } catch (error) {
+      showProjectError(error);
+    }
   }
 
   async function deleteProject(project: ProjectContext) {
     if (!confirm(t('sidepanel.projectsPage.deleteConfirm', { name: project.name }))) return;
-    await chrome.runtime.sendMessage({
-      type: 'DELETE_PROJECT_CONTEXT',
-      payload: { projectId: project.id },
-    });
-    await load();
+    try {
+      unwrapProjectResponse(await chrome.runtime.sendMessage({
+        type: 'DELETE_PROJECT_CONTEXT',
+        payload: { projectId: project.id },
+      }), t('sidepanel.projectsPage.backendUnavailable'));
+      await load();
+    } catch (error) {
+      showProjectError(error);
+    }
   }
 
   async function addManualFile() {
     if (!activeProject || !manualPath.trim() || !manualContent.trim()) return;
-    await chrome.runtime.sendMessage({
-      type: 'ADD_PROJECT_FILES',
-      payload: {
-        projectId: activeProject.id,
-        files: [{ path: manualPath, content: manualContent, sourceKind: 'manual' }],
-      },
-    });
-    setManualContent('');
-    await load();
+    try {
+      setMessage('');
+      unwrapProjectResponse(await chrome.runtime.sendMessage({
+        type: 'ADD_PROJECT_FILES',
+        payload: {
+          projectId: activeProject.id,
+          files: [{ path: manualPath, content: manualContent, sourceKind: 'manual' }],
+        },
+      }), t('sidepanel.projectsPage.backendUnavailable'));
+      setManualContent('');
+      await load();
+    } catch (error) {
+      setMessage(t('sidepanel.projectsPage.operationFailed', { error: getErrorMessage(error) }));
+    }
   }
 
   async function importGithub() {
@@ -94,10 +133,17 @@ export default function ProjectsPage() {
         setMessage(t('sidepanel.projectsPage.permissionError'));
         return;
       }
-      const result = await chrome.runtime.sendMessage({
+      const result = unwrapProjectResponse<{
+        files?: ProjectFile[];
+        warnings?: string[];
+      }>(await chrome.runtime.sendMessage({
         type: 'IMPORT_GITHUB_PROJECT_CONTEXT',
-        payload: { projectId: activeProject.id, url: githubUrl },
-      }) as { files?: ProjectFile[]; warnings?: string[] };
+        payload: {
+          projectId: activeProject.id,
+          url: githubUrl,
+          token: githubToken.trim() || undefined,
+        },
+      }), t('sidepanel.projectsPage.backendUnavailable'));
       const warnings = result.warnings?.length ?? 0;
       setImportState('done');
       setMessage(warnings > 0
@@ -119,22 +165,37 @@ export default function ProjectsPage() {
       inputs.push({ path, content: await file.text(), sourceKind: 'local_folder' });
     }
     if (inputs.length === 0) return;
-    await chrome.runtime.sendMessage({
-      type: 'ADD_PROJECT_FILES',
-      payload: { projectId: activeProject.id, files: inputs },
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
-    await load();
+    try {
+      setMessage('');
+      unwrapProjectResponse(await chrome.runtime.sendMessage({
+        type: 'ADD_PROJECT_FILES',
+        payload: { projectId: activeProject.id, files: inputs },
+      }), t('sidepanel.projectsPage.backendUnavailable'));
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      await load();
+    } catch (error) {
+      setMessage(t('sidepanel.projectsPage.operationFailed', { error: getErrorMessage(error) }));
+    }
+  }
+
+  function showProjectError(error: unknown) {
+    setStatusMessage(t('sidepanel.projectsPage.operationFailed', { error: getErrorMessage(error) }));
   }
 
   return (
     <div className="p-4 space-y-4">
+      <PageIntro
+        title={t('sidepanel.projectsPage.title')}
+        description={t('sidepanel.projectsPage.description')}
+        meta={t('sidepanel.projectsPage.summary', {
+          projects: state?.projects.length ?? 0,
+          files: state?.files.length ?? 0,
+        })}
+      />
+
       <section className="ds-surface-panel rounded-xl p-4 space-y-3">
-        <div>
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.projectsPage.title')}</h2>
-          <p className="text-xs mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.projectsPage.description')}
-          </p>
+        <div className="text-xs font-semibold" style={{ color: 'var(--ds-text)' }}>
+          {t('sidepanel.projectsPage.createTitle')}
         </div>
         <input
           value={name}
@@ -157,6 +218,11 @@ export default function ProjectsPage() {
         >
           {t('sidepanel.projectsPage.createProject')}
         </button>
+        {statusMessage && (
+          <div className="text-[11px] rounded-lg px-2 py-1.5" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)' }}>
+            {statusMessage}
+          </div>
+        )}
       </section>
 
       <section className="space-y-2">
@@ -185,6 +251,17 @@ export default function ProjectsPage() {
             </button>
           </div>
         ))}
+        {(state?.projects.length ?? 0) === 0 && (
+          <div className="ds-empty-state">
+            <div className="ds-empty-state-icon">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+            </div>
+            <div className="ds-empty-state-title">{t('sidepanel.projectsPage.empty')}</div>
+            <div className="ds-empty-state-description">{t('sidepanel.projectsPage.emptyHelp')}</div>
+          </div>
+        )}
       </section>
 
       {activeProject && (
@@ -200,6 +277,18 @@ export default function ProjectsPage() {
               className="px-3 py-2 text-xs rounded-lg border outline-none"
               style={inputStyle}
             />
+            <input
+              value={githubToken}
+              onChange={(event) => setGithubToken(event.target.value)}
+              placeholder={t('sidepanel.projectsPage.githubTokenPlaceholder')}
+              type="password"
+              autoComplete="off"
+              className="px-3 py-2 text-xs rounded-lg border outline-none"
+              style={inputStyle}
+            />
+            <div className="text-[10px] leading-relaxed" style={{ color: 'var(--ds-text-tertiary)' }}>
+              {t('sidepanel.projectsPage.githubTokenHelp')}
+            </div>
             <button
               onClick={importGithub}
               disabled={importState === 'running' || !githubUrl.trim()}
@@ -259,7 +348,10 @@ export default function ProjectsPage() {
                     void chrome.runtime.sendMessage({
                       type: 'SET_ACTIVE_PROJECT_FILES',
                       payload: { projectId: activeProject.id, fileIds: [...current] },
-                    }).then(load);
+                    })
+                      .then((response) => unwrapProjectResponse(response, t('sidepanel.projectsPage.backendUnavailable')))
+                      .then(load)
+                      .catch((error) => setMessage(t('sidepanel.projectsPage.operationFailed', { error: getErrorMessage(error) })));
                   }}
                 />
                 <span className="truncate">{file.path}</span>
@@ -278,3 +370,42 @@ const inputStyle = {
   borderColor: 'var(--ds-border)',
   color: 'var(--ds-text)',
 };
+
+function unwrapProjectResponse<T = unknown>(response: unknown, missingMessage: string): T {
+  if (isBackgroundFailure(response)) {
+    throw new Error(response.error ? String(response.error) : missingMessage);
+  }
+  if (response === null || response === undefined) {
+    throw new Error(missingMessage);
+  }
+  return response as T;
+}
+
+function isBackgroundFailure(response: unknown): response is { ok: false; error?: unknown } {
+  return Boolean(
+    response &&
+    typeof response === 'object' &&
+    (response as { ok?: unknown }).ok === false,
+  );
+}
+
+function isProjectContextState(value: unknown): value is ProjectContextState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as ProjectContextState;
+  return Array.isArray(state.projects) &&
+    Array.isArray(state.files) &&
+    (state.activeProjectId === null || typeof state.activeProjectId === 'string') &&
+    Array.isArray(state.activeFileIds);
+}
+
+function isProjectContext(value: unknown): value is ProjectContext {
+  if (!value || typeof value !== 'object') return false;
+  const project = value as ProjectContext;
+  return typeof project.id === 'string' &&
+    typeof project.name === 'string' &&
+    typeof project.instructions === 'string';
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

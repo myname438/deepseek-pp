@@ -4,6 +4,7 @@ import {
   normalizeDeveloperSettings,
   type DeveloperSettings,
 } from '../../../core/developer/settings';
+import PageIntro from '../components/PageIntro';
 import { useI18n } from '../i18n';
 
 type RunState = 'idle' | 'running' | 'done' | 'error';
@@ -61,14 +62,10 @@ export default function DeveloperPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div>
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.developerPage.title')}
-        </h2>
-        <p className="text-[11px] mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.developerPage.description')}
-        </p>
-      </div>
+      <PageIntro
+        title={t('sidepanel.developerPage.title')}
+        description={t('sidepanel.developerPage.description')}
+      />
 
       <div className="ds-surface-panel rounded-xl p-4 space-y-3">
         {!settings.apiPlaygroundEnabled && (

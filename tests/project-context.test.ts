@@ -119,6 +119,14 @@ describe('project context sources and retrieval', () => {
     expect(result.files.map((file) => file.path)).toEqual(['README.md']);
   });
 
+  it('explains GitHub 403 failures as authentication or rate-limit issues', async () => {
+    const fetchImpl = vi.fn(async () => new Response('rate limit', { status: 403 })) as unknown as typeof fetch;
+
+    await expect(fetchGitHubProjectFiles('owner/repo', { fetchImpl })).rejects.toThrow(
+      'The repository may require authentication',
+    );
+  });
+
   it('ranks relevant chunks and formats prompt context', () => {
     const files: ProjectFile[] = [
       projectFile('p1', 'docs/setup.md', 'Install Android WebView assets\nRun npm run build:android'),

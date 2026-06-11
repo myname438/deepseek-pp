@@ -2,15 +2,19 @@ import { useState } from 'react';
 import SkillPage from './SkillPage';
 import McpPage from './McpPage';
 import ToolsPage from './ToolsPage';
+import PresetPage from './PresetPage';
+import AutomationPage from './AutomationPage';
 import { useI18n } from '../i18n';
 import type { LocaleMessageKey } from '../../../core/i18n';
 
-type SubTab = 'skill' | 'mcp' | 'tools';
+type SubTab = 'skill' | 'mcp' | 'tools' | 'preset' | 'automation';
 
 const SUB_TABS: { key: SubTab; labelKey: LocaleMessageKey }[] = [
   { key: 'skill', labelKey: 'sidepanel.capabilitiesPage.tabs.skill' },
   { key: 'mcp', labelKey: 'sidepanel.capabilitiesPage.tabs.mcp' },
   { key: 'tools', labelKey: 'sidepanel.capabilitiesPage.tabs.tools' },
+  { key: 'preset', labelKey: 'sidepanel.capabilitiesPage.tabs.preset' },
+  { key: 'automation', labelKey: 'sidepanel.capabilitiesPage.tabs.automation' },
 ];
 
 export default function CapabilitiesPage() {
@@ -36,6 +40,8 @@ export default function CapabilitiesPage() {
         {sub === 'skill' && <SkillPage />}
         {sub === 'mcp' && <McpPage />}
         {sub === 'tools' && <ToolsPage />}
+        {sub === 'preset' && <PresetPage />}
+        {sub === 'automation' && <AutomationPage />}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import type {
 } from '../../../core/automation/types';
 import { validateAutomationSchedule } from '../../../core/automation/schedule';
 import type { SupportedLocale } from '../../../core/i18n';
+import PageIntro from '../components/PageIntro';
 import { useI18n } from '../i18n';
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
@@ -196,15 +197,11 @@ export default function AutomationPage() {
 
   return (
     <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-            {t('sidepanel.automationPage.title')}
-          </h2>
-          <div className="text-[11px] mt-0.5" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.automationPage.summary', { total: automations.length, active: activeCount })}
-          </div>
-        </div>
+      <PageIntro
+        title={t('sidepanel.automationPage.title')}
+        description={t('sidepanel.automationPage.description')}
+        meta={t('sidepanel.automationPage.summary', { total: automations.length, active: activeCount })}
+        actions={(
         <button
           onClick={startCreate}
           className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
@@ -214,7 +211,8 @@ export default function AutomationPage() {
           </svg>
           {t('sidepanel.automationPage.create')}
         </button>
-      </div>
+        )}
+      />
 
       {message && (
         <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)', border: '1px solid var(--ds-danger-border)' }}>
@@ -235,13 +233,14 @@ export default function AutomationPage() {
       )}
 
       {automations.length === 0 && !showForm ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'var(--ds-surface)' }}>
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ color: 'var(--ds-text-tertiary)' }}>
+        <div className="ds-empty-state">
+          <div className="ds-empty-state-icon">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <p className="text-sm" style={{ color: 'var(--ds-text-tertiary)' }}>{t('sidepanel.automationPage.empty')}</p>
+          <div className="ds-empty-state-title">{t('sidepanel.automationPage.empty')}</div>
+          <div className="ds-empty-state-description">{t('sidepanel.automationPage.emptyHelp')}</div>
         </div>
       ) : (
         <div className="space-y-2">

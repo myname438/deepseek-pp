@@ -23,6 +23,7 @@ import type {
   ToolExecutionMode,
   PlatformEnvironment,
 } from '../../../core/types';
+import PageIntro from '../components/PageIntro';
 import { useI18n } from '../i18n';
 
 type McpTransportKind = McpServerTransportConfig['kind'];
@@ -308,39 +309,36 @@ export default function McpPage() {
 
   return (
     <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div>
-          <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-            {t('sidepanel.mcpPage.title')}
-          </h2>
-          <div className="text-[11px] mt-0.5" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.mcpPage.summary', {
-              servers: servers.length,
-              enabled: enabledCount,
-              tools: toolCount,
-            })}
-          </div>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={createShellPreset}
-            disabled={!nativeMessagingSupported}
-            title={!nativeMessagingSupported ? t('sidepanel.mcpPage.messages.nativeMessagingUnsupported') : undefined}
-            className="ds-btn-secondary px-3 py-1.5 text-xs rounded-lg transition-all duration-150 disabled:opacity-50"
-          >
-            {t('sidepanel.mcpPage.shell')}
-          </button>
-          <button
-            onClick={startCreate}
-            className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            {t('sidepanel.mcpPage.addServer')}
-          </button>
-        </div>
-      </div>
+      <PageIntro
+        title={t('sidepanel.mcpPage.title')}
+        description={t('sidepanel.mcpPage.description')}
+        meta={t('sidepanel.mcpPage.summary', {
+          servers: servers.length,
+          enabled: enabledCount,
+          tools: toolCount,
+        })}
+        actions={(
+          <>
+            <button
+              onClick={createShellPreset}
+              disabled={!nativeMessagingSupported}
+              title={!nativeMessagingSupported ? t('sidepanel.mcpPage.messages.nativeMessagingUnsupported') : undefined}
+              className="ds-btn-secondary px-3 py-1.5 text-xs rounded-lg transition-all duration-150 disabled:opacity-50"
+            >
+              {t('sidepanel.mcpPage.shell')}
+            </button>
+            <button
+              onClick={startCreate}
+              className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {t('sidepanel.mcpPage.addServer')}
+            </button>
+          </>
+        )}
+      />
 
       {message && (
         <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)', border: '1px solid var(--ds-border)' }}>

@@ -1,5 +1,6 @@
 import { defineConfig, type ConfigEnv, type UserManifest } from 'wxt';
 import tailwindcss from '@tailwindcss/vite';
+import type { Plugin } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { readFileSync } from 'node:fs';
@@ -65,13 +66,56 @@ function createManifest(env: ConfigEnv): UserManifest {
   };
 }
 
+function asciiJavaScriptOutputPlugin(): Plugin {
+  return {
+    name: 'deepseek-pp-ascii-js-output',
+    enforce: 'post',
+    generateBundle(_, bundle) {
+      for (const item of Object.values(bundle)) {
+        if (item.type === 'chunk') {
+          item.code = escapeNonAsciiJavaScript(item.code);
+          continue;
+        }
+
+        if (!item.fileName.endsWith('.js')) continue;
+        const source = typeof item.source === 'string'
+          ? item.source
+          : Buffer.from(item.source).toString('utf8');
+        item.source = escapeNonAsciiJavaScript(source);
+      }
+    },
+  };
+}
+
+function escapeNonAsciiJavaScript(source: string): string {
+  let escaped = '';
+  for (const char of source) {
+    const codePoint = char.codePointAt(0);
+    if (codePoint === undefined || codePoint <= 0x7f) {
+      escaped += char;
+      continue;
+    }
+    escaped += codePoint <= 0xffff
+      ? `\\u${codePoint.toString(16).padStart(4, '0')}`
+      : toSurrogatePairEscape(codePoint);
+  }
+  return escaped;
+}
+
+function toSurrogatePairEscape(codePoint: number): string {
+  const value = codePoint - 0x10000;
+  const high = 0xd800 + (value >> 10);
+  const low = 0xdc00 + (value & 0x3ff);
+  return `\\u${high.toString(16).padStart(4, '0')}\\u${low.toString(16).padStart(4, '0')}`;
+}
+
 export default defineConfig({
   outDir: 'dist',
   targetBrowsers: ['chrome', 'edge', 'firefox'],
   modules: ['@wxt-dev/module-react'],
   manifest: createManifest,
   vite: () => ({
-    plugins: [tailwindcss()],
+    plugins: [tailwindcss(), asciiJavaScriptOutputPlugin()],
     resolve: {
       alias: {
         '@wxt-dev/browser': safeWxtBrowser,

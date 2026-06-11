@@ -3,6 +3,7 @@ import { SHELL_MCP_NATIVE_HOST, SHELL_MCP_SERVER_NAME, createShellMcpPresetInput
 import { isShellNativeHostSupported } from '../../../core/platform';
 import type { LocaleMessageKey } from '../../../core/i18n';
 import type { McpServerConfig, McpToolAllowlist, McpToolCacheEntry, PlatformEnvironment, ToolDescriptor } from '../../../core/types';
+import PageIntro from '../components/PageIntro';
 import { useI18n } from '../i18n';
 
 type PermissionState = 'idle' | 'granting' | 'granted' | 'denied' | 'error';
@@ -398,14 +399,10 @@ export default function ToolsPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.toolsPage.toolTitle')}
-        </h2>
-        <p className="text-[11px]" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.toolsPage.toolDescription')}
-        </p>
-      </div>
+      <PageIntro
+        title={t('sidepanel.toolsPage.toolTitle')}
+        description={t('sidepanel.toolsPage.toolDescription')}
+      />
 
       <div className="space-y-2">
         {TOOLS.map((tool) => (

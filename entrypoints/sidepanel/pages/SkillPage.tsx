@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { LocaleMessageKey, MessageParams, SupportedLocale } from '../../../core/i18n';
 import type { GitHubSkillSource, GitHubSkillUpdatePreview, Skill } from '../../../core/types';
 import GitHubSkillImportPanel from '../components/GitHubSkillImportPanel';
+import PageIntro from '../components/PageIntro';
 import SkillCard from '../components/SkillCard';
 import SkillForm from '../components/SkillForm';
 import { requestGitHubApiPermission } from '../github-permission';
@@ -197,34 +198,37 @@ export default function SkillPage() {
   const official = skills.filter((s) => s.source === 'official');
   const remote = skills.filter((s) => s.source === 'remote');
   const custom = skills.filter((s) => s.source === 'custom');
+  const enabledCount = skills.filter((s) => s.enabled !== false).length;
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.skillPage.title')}
-        </h2>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleImport}
-            className="ds-btn-secondary px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" />
-            </svg>
-            GitHub
-          </button>
-          <button
-            onClick={handleCreate}
-            className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            {t('sidepanel.skillPage.createCustom')}
-          </button>
-        </div>
-      </div>
+      <PageIntro
+        title={t('sidepanel.skillPage.title')}
+        description={t('sidepanel.skillPage.description')}
+        meta={t('sidepanel.skillPage.summary', { total: skills.length, enabled: enabledCount })}
+        actions={(
+          <>
+            <button
+              onClick={handleImport}
+              className="ds-btn-secondary px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" />
+              </svg>
+              GitHub
+            </button>
+            <button
+              onClick={handleCreate}
+              className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {t('sidepanel.skillPage.createCustom')}
+            </button>
+          </>
+        )}
+      />
 
       {showImport && (
         <div className="animate-slide-down">

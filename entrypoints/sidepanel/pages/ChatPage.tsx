@@ -207,14 +207,19 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2" style={{ borderBottom: '1px solid var(--ds-border)' }}>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.chatPage.title')}</span>
-          {authStatus?.provider && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--ds-text-tertiary)', background: 'var(--ds-surface)' }}>
-              {authStatus.provider === 'official-api' ? 'API' : 'Web'}
-            </span>
-          )}
+      <div className="flex items-start justify-between gap-3 px-4 py-3" style={{ borderBottom: '1px solid var(--ds-border)' }}>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.chatPage.title')}</span>
+            {authStatus?.provider && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ color: 'var(--ds-text-tertiary)', background: 'var(--ds-surface)' }}>
+                {authStatus.provider === 'official-api' ? 'API' : 'Web'}
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
+            {t('sidepanel.chatPage.description')}
+          </p>
         </div>
         <div className="flex items-center gap-1.5">
           {voiceSettings.readAloudEnabled && voiceCapabilities.speechSynthesis && (
@@ -241,8 +246,14 @@ export default function ChatPage() {
       {/* Messages */}
       <div ref={listRef} className="flex-1 overflow-y-auto p-3">
         {messages.length === 0 && !isStreaming && (
-          <div className="flex items-center justify-center h-full text-xs" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.chatPage.empty')}
+          <div className="ds-empty-state h-full">
+            <div className="ds-empty-state-icon">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </div>
+            <div className="ds-empty-state-title">{t('sidepanel.chatPage.empty')}</div>
+            <div className="ds-empty-state-description">{t('sidepanel.chatPage.emptyHelp')}</div>
           </div>
         )}
         {messages.map((msg, i) => (

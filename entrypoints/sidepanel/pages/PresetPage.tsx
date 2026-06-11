@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SystemPromptPreset } from '../../../core/types';
+import PageIntro from '../components/PageIntro';
 import PresetCard from '../components/PresetCard';
 import PresetForm from '../components/PresetForm';
 import { useI18n } from '../i18n';
@@ -84,39 +85,41 @@ export default function PresetPage() {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.presetPage.title')}
-        </h2>
-        <div className="flex items-center gap-1.5">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".txt,.md"
-            multiple
-            className="hidden"
-            onChange={(e) => e.target.files?.length && handleImportFiles(e.target.files)}
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="ds-btn-cancel px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-            </svg>
-            {t('sidepanel.presetPage.import')}
-          </button>
-          <button
-            onClick={() => { setEditing(undefined); setShowForm(!showForm); }}
-            className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-            </svg>
-            {t('sidepanel.presetPage.create')}
-          </button>
-        </div>
-      </div>
+      <PageIntro
+        title={t('sidepanel.presetPage.title')}
+        description={t('sidepanel.presetPage.description')}
+        meta={activeId ? t('sidepanel.presetPage.activeMeta') : t('sidepanel.presetPage.inactiveMeta')}
+        actions={(
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.md"
+              multiple
+              className="hidden"
+              onChange={(e) => e.target.files?.length && handleImportFiles(e.target.files)}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="ds-btn-cancel px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-150 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              {t('sidepanel.presetPage.import')}
+            </button>
+            <button
+              onClick={() => { setEditing(undefined); setShowForm(!showForm); }}
+              className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              {t('sidepanel.presetPage.create')}
+            </button>
+          </>
+        )}
+      />
 
       {showForm && (
         <div className="animate-slide-down">
@@ -139,10 +142,14 @@ export default function PresetPage() {
       </div>
 
       {presets.length === 0 && !showForm && (
-        <div className="ds-info-panel rounded-xl p-3.5">
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
-            {t('sidepanel.presetPage.emptyHelp')}
-          </p>
+        <div className="ds-empty-state">
+          <div className="ds-empty-state-icon">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div className="ds-empty-state-title">{t('sidepanel.presetPage.empty')}</div>
+          <div className="ds-empty-state-description">{t('sidepanel.presetPage.emptyHelp')}</div>
         </div>
       )}
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { SavedItem, SavedItemInput, SavedItemKind } from '../../../core/saved-items';
 import { createSavedItemsJsonArtifact, createSavedItemsMarkdownArtifact, type SecondaryExportArtifact } from '../../../core/export/secondary-artifacts';
+import PageIntro from '../components/PageIntro';
 import { SVG_PATHS } from '../constants';
 import { useI18n } from '../i18n';
 
@@ -81,33 +82,31 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.savedPage.title')}
-        </h2>
-        <span className="text-[11px]" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.savedPage.count', { count: items.length })}
-        </span>
-      </div>
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => exportItems('markdown')}
-          disabled={items.length === 0}
-          className="ds-btn-secondary flex-1 py-2 text-[11px] font-medium rounded-lg disabled:opacity-40"
-        >
-          {t('sidepanel.savedPage.exportMarkdown')}
-        </button>
-        <button
-          type="button"
-          onClick={() => exportItems('json')}
-          disabled={items.length === 0}
-          className="ds-btn-secondary flex-1 py-2 text-[11px] font-medium rounded-lg disabled:opacity-40"
-        >
-          {t('sidepanel.savedPage.exportJson')}
-        </button>
-      </div>
+      <PageIntro
+        title={t('sidepanel.savedPage.title')}
+        description={t('sidepanel.savedPage.description')}
+        meta={t('sidepanel.savedPage.count', { count: items.length })}
+        actions={(
+          <>
+            <button
+              type="button"
+              onClick={() => exportItems('markdown')}
+              disabled={items.length === 0}
+              className="ds-btn-secondary px-2.5 py-1.5 text-[11px] font-medium rounded-lg disabled:opacity-40"
+            >
+              {t('sidepanel.savedPage.exportMarkdown')}
+            </button>
+            <button
+              type="button"
+              onClick={() => exportItems('json')}
+              disabled={items.length === 0}
+              className="ds-btn-secondary px-2.5 py-1.5 text-[11px] font-medium rounded-lg disabled:opacity-40"
+            >
+              {t('sidepanel.savedPage.exportJson')}
+            </button>
+          </>
+        )}
+      />
 
       <div className="ds-surface-panel rounded-xl p-4 space-y-3">
         <div className="grid grid-cols-2 gap-2">
@@ -167,8 +166,14 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
 
       <div className="space-y-2">
         {filtered.length === 0 && (
-          <div className="text-xs text-center py-8" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.savedPage.empty')}
+          <div className="ds-empty-state">
+            <div className="ds-empty-state-icon">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-4-7 4V5z" />
+              </svg>
+            </div>
+            <div className="ds-empty-state-title">{t('sidepanel.savedPage.empty')}</div>
+            <div className="ds-empty-state-description">{t('sidepanel.savedPage.emptyHelp')}</div>
           </div>
         )}
         {filtered.map((item) => (

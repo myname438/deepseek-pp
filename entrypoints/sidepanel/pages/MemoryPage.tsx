@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Memory, MemoryType, NewMemory } from '../../../core/types';
 import MemoryCard from '../components/MemoryCard';
 import MemoryForm from '../components/MemoryForm';
+import PageIntro from '../components/PageIntro';
 import { MEMORY_TYPE_CONFIG } from '../constants';
 import { useI18n } from '../i18n';
 
@@ -83,6 +84,12 @@ export default function MemoryPage() {
 
   return (
     <div className="p-4 space-y-3">
+      <PageIntro
+        title={t('sidepanel.memoryPage.title')}
+        description={t('sidepanel.memoryPage.description')}
+        meta={t('sidepanel.memoryPage.count', { count: memories.length })}
+      />
+
       <div className="flex items-center justify-between">
         <div className="flex gap-1.5 flex-wrap">
           {filterTypes.map((t) => (
@@ -123,13 +130,20 @@ export default function MemoryPage() {
       )}
 
       {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-xl" style={{ background: 'var(--ds-surface)' }}>
-            🧠
+        <div className="ds-empty-state">
+          <div className="ds-empty-state-icon">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
+            </svg>
           </div>
-          <p className="text-sm" style={{ color: 'var(--ds-text-tertiary)' }}>
+          <div className="ds-empty-state-title">
             {memories.length === 0 ? t('sidepanel.memoryPage.emptyAll') : t('sidepanel.memoryPage.emptyFiltered')}
-          </p>
+          </div>
+          {memories.length === 0 && (
+            <div className="ds-empty-state-description">
+              {t('sidepanel.memoryPage.emptyHelp')}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
@@ -145,9 +159,6 @@ export default function MemoryPage() {
         </div>
       )}
 
-      <div className="text-[11px] text-center pt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {t('sidepanel.memoryPage.count', { count: memories.length })}
-      </div>
     </div>
   );
 }

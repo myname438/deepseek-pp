@@ -13,7 +13,6 @@ import {
 } from '../core/export/secondary-artifacts';
 import {
   extractHistoryItems,
-  filterHistoryItems,
   normalizeHistoryOrganizerState,
   parseSessionId,
   startDeepSeekHistoryOrganizer,
@@ -89,7 +88,7 @@ describe('Phase 5 product surface helpers', () => {
     expect(seenHeaders).toEqual(['Bearer sk-secret']);
   });
 
-  it('extracts and filters DeepSeek history items with tags isolated from DOM text', () => {
+  it('extracts DeepSeek history items with tags isolated from DOM text', () => {
     document.body.innerHTML = `
       <nav>
         <div><a href="https://chat.deepseek.com/a/chat/s/session-one">Release notes</a></div>
@@ -103,12 +102,10 @@ describe('Phase 5 product surface helpers', () => {
       },
     });
     const items = extractHistoryItems(document, state);
-    const filtered = filterHistoryItems(items, { query: 'release', tag: 'rel' });
 
     expect(parseSessionId('https://chat.deepseek.com/a/chat/s/session-one')).toBe('session-one');
     expect(items.map((item) => item.sessionId)).toEqual(['session-one', 'session-two']);
-    expect(filtered.visible.map((item) => item.sessionId)).toEqual(['session-one']);
-    expect(filtered.hidden.map((item) => item.sessionId)).toEqual(['session-two']);
+    expect(items.map((item) => item.tags)).toEqual([['release'], ['android']]);
   });
 
   it('collects code blocks and infers download filenames', () => {
@@ -130,16 +127,23 @@ describe('Phase 5 product surface helpers', () => {
       <nav>
         <div><a href="https://chat.deepseek.com/a/chat/s/session-one">Release notes</a></div>
       </nav>
+      <div role="dialog">
+        <div><input role="searchbox" /></div>
+        <div role="listbox">
+          <div role="option">Release notes yesterday</div>
+        </div>
+      </div>
       <pre><code class="language-ts">const ok = true;</code></pre>
       <div data-message-id="message-1" data-message-role="assistant">Hello</div>
     `;
 
     const history = startDeepSeekHistoryOrganizer(() => ({
-      title: 'DeepSeek++ 历史',
-      searchPlaceholder: '搜索对话',
-      tagPlaceholder: '按标签过滤',
-      currentTagsPlaceholder: '当前对话标签',
-      noHistoryDetected: 'DeepSeek++：未检测到历史列表',
+      enhancedSearchTitle: 'DeepSeek++ 搜索增强',
+      tagFilterLabel: '按标签筛选结果',
+      tagPlaceholder: '输入标签名',
+      currentTagsLabel: '给当前对话加标签',
+      currentTagsPlaceholder: '逗号分隔，例如：港股, 写作',
+      emptySearchStatus: 'DeepSeek++：等待官方搜索结果',
       visibleStatus: (visibleCount, totalCount) => `DeepSeek++：已显示 ${visibleCount}/${totalCount}`,
       storageError: (_action, message) => `DeepSeek++：历史标签错误：${message}`,
     }));
@@ -150,15 +154,64 @@ describe('Phase 5 product surface helpers', () => {
     }));
 
     try {
-      expect(document.querySelector('[data-dpp-history-title]')?.textContent).toBe('DeepSeek++ 历史');
-      expect(document.querySelector<HTMLInputElement>('[data-dpp-history-search]')?.placeholder).toBe('搜索对话');
-      expect(document.querySelector<HTMLInputElement>('[data-dpp-history-tag]')?.placeholder).toBe('按标签过滤');
+      expect(document.querySelector('#dpp-history-search-enhancer')).not.toBeNull();
+      expect(document.querySelector('[data-dpp-history-title]')?.textContent).toBe('DeepSeek++ 搜索增强');
+      expect(document.querySelector('[data-dpp-history-search]')).toBeNull();
+      expect(document.querySelector('[data-dpp-history-tag-label]')?.textContent).toBe('按标签筛选结果');
+      expect(document.querySelector<HTMLInputElement>('[data-dpp-history-tag]')?.placeholder).toBe('输入标签名');
+      expect(document.querySelector('[data-dpp-current-tags-label]')?.textContent).toBe('给当前对话加标签');
+      expect(document.querySelector<HTMLInputElement>('[data-dpp-current-tags]')?.placeholder).toBe('逗号分隔，例如：港股, 写作');
       expect(document.querySelector('[data-dpp-history-status]')?.textContent).toBe('DeepSeek++：已显示 1/1');
       expect(document.querySelector<HTMLButtonElement>('.dpp-code-download')?.textContent).toBe('下载');
       expect(document.querySelector<HTMLButtonElement>('.dpp-message-download')?.title).toBe('下载消息为 Markdown');
     } finally {
       history.stop();
       polish.stop();
+    }
+  });
+
+  it('filters official search results by DeepSeek++ history tags', async () => {
+    storage.deepseek_pp_history_organizer = {
+      tagsBySessionId: {
+        'session-one': ['release'],
+      },
+    };
+    document.body.innerHTML = `
+      <nav>
+        <div><a href="https://chat.deepseek.com/a/chat/s/session-one">Release notes</a></div>
+        <div><a href="https://chat.deepseek.com/a/chat/s/session-two">Android WebView</a></div>
+      </nav>
+      <div role="dialog">
+        <div><input role="searchbox" /></div>
+        <div role="listbox">
+          <div role="option" data-testid="release-result">Release notes yesterday</div>
+          <div role="option" data-testid="android-result">Android WebView</div>
+        </div>
+      </div>
+    `;
+
+    const history = startDeepSeekHistoryOrganizer(() => ({
+      enhancedSearchTitle: 'DeepSeek++ 搜索增强',
+      tagFilterLabel: '按标签筛选结果',
+      tagPlaceholder: '输入标签名',
+      currentTagsLabel: '给当前对话加标签',
+      currentTagsPlaceholder: '逗号分隔，例如：港股, 写作',
+      emptySearchStatus: 'DeepSeek++：等待官方搜索结果',
+      visibleStatus: (visibleCount, totalCount) => `DeepSeek++：已显示 ${visibleCount}/${totalCount}`,
+      storageError: (_action, message) => `DeepSeek++：历史标签错误：${message}`,
+    }));
+
+    try {
+      await Promise.resolve();
+      const tagInput = document.querySelector<HTMLInputElement>('[data-dpp-history-tag]');
+      tagInput!.value = 'rel';
+      tagInput!.dispatchEvent(new Event('input', { bubbles: true }));
+
+      expect(document.querySelector<HTMLElement>('[data-testid="release-result"]')?.hidden).toBe(false);
+      expect(document.querySelector<HTMLElement>('[data-testid="android-result"]')?.hidden).toBe(true);
+      expect(document.querySelector('[data-dpp-history-status]')?.textContent).toBe('DeepSeek++：已显示 1/2');
+    } finally {
+      history.stop();
     }
   });
 
