@@ -267,15 +267,16 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
 
 ## 0.7.0 Release Highlights
 
-0.7.0 strengthens project context, interactive tools, and the side-panel workflow, making DeepSeek++ feel more like a browser-based AI agent workspace for sustained work.
+0.7.0 moves DeepSeek++ from a DeepSeek web-page enhancement toward a sustained browser-based AI agent workspace: context can be reused, outputs can become downloadable files, and tool execution can be reviewed, steered, and resumed.
 
 | Area | Main changes |
 |------|--------------|
-| Project context | Organize repositories, pages, local files, and manual notes as reusable project material, then attach only what a task needs. |
-| Downloadable artifacts | DeepSeek++ can create single-file outputs or project bundles for scripts, Markdown, JSON, HTML, and small project structures. |
-| Interactive tools | Sandbox approvals, Skill drafts, memory import, saved snippets, and prompt controls make multi-step work easier to review and steer. |
-| Side-panel chat | Side-panel chat, right-click scenarios, official API Key setup, and restored tool results keep execution feedback clearer after refresh. |
-| Update notice | New releases now surface a side-panel summary, and dismissed notices stay dismissed per version. |
+| Project context | Organize repositories, pages, local files, and manual notes as reusable project material, then attach only the relevant slices to each task. |
+| Downloadable artifacts | Create single files or project bundles for scripts, Markdown, JSON, HTML, small prototypes, and documentation sets. |
+| Interactive tools | Sandbox approvals, Skill draft review, memory-import preview, saved snippets, and prompt controls make multi-step work easier to inspect, revise, and steer. |
+| Workspace flow | Side-panel chat, right-click scenarios, official API Key setup, restored tool results, and page navigation keep execution feedback clearer after refresh. |
+| Review and reuse | Saved items, history tags/search, code-block downloads, single-message export, and image attachment manifests make conversation material easier to organize and reuse. |
+| Release quality | Update notices stay dismissed per version; release checks continue to cover bilingual runtime, local tools, MCP, automation, multi-browser packages, and release assets. |
 
 <details>
 <summary>Show 0.6.5 release highlights</summary>
