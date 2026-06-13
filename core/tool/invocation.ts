@@ -97,13 +97,13 @@ export function createToolCallFromInvocation(
   payload: ToolPayload,
   raw: string,
   catalog: ToolInvocationCatalog,
-  options?: { parseError?: ToolError },
+  options?: { parseError?: ToolError; id?: string },
 ): ToolCall {
   const descriptor =
     catalog.descriptorByInvocationName.get(invocationName) ||
     catalog.descriptorByName.get(invocationName);
 
-  return {
+  const call: ToolCall = {
     name: descriptor?.name ?? invocationName,
     invocationName: descriptor?.invocationName ?? invocationName,
     payload,
@@ -112,6 +112,8 @@ export function createToolCallFromInvocation(
     provider: descriptor?.provider,
     parseError: options?.parseError,
   };
+  if (options?.id) call.id = options.id;
+  return call;
 }
 
 export function getToolInvocationNames(

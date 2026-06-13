@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { stripToolCallsFromHistory } from '../core/interceptor/history-cleanup';
+import { createArtifactToolDescriptors } from '../core/artifact';
 import { createDefaultToolDescriptors } from '../core/tool';
 
 describe('history cleanup', () => {
@@ -96,5 +97,84 @@ describe('history cleanup', () => {
         role: 'assistant',
       },
     });
+  });
+
+  it('does not parse or pass huge artifact payloads back through restore records', () => {
+    const records: any[] = [];
+    const html = '<!doctype html><html><body>' + 'x'.repeat(250_000) + '</body></html>';
+    const json = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              message_id: 20,
+              message_role: 'assistant',
+              content: [
+                'Created < draft.',
+                '<artifact_create>',
+                JSON.stringify({
+                  filename: 'demo.html',
+                  content: html,
+                  mimeType: 'text/html',
+                }),
+                '</artifact_create>',
+              ].join('\n'),
+            },
+          ],
+        },
+      },
+    };
+
+    stripToolCallsFromHistory(json, {
+      toolDescriptors: [
+        ...createDefaultToolDescriptors(),
+        ...createArtifactToolDescriptors(),
+      ],
+      onToolCallsRestored: (next) => records.push(...next),
+    });
+
+    expect(json.data.biz_data.chat_messages[0].content).toBe('Created < draft.');
+    expect(records).toHaveLength(1);
+    expect(records[0].content).toBe('Created < draft.');
+    expect(records[0].calls[0].name).toBe('artifact_create');
+    expect(records[0].calls[0].raw).toBe('<artifact_create>\n...[restore payload omitted]\n</artifact_create>');
+    expect(records[0].calls[0].payload).toEqual({});
+  });
+
+  it('strips huge legacy DSML blocks without parsing their payload content', () => {
+    const records: any[] = [];
+    const json = {
+      data: {
+        biz_data: {
+          chat_messages: [
+            {
+              message_id: 30,
+              message_role: 'assistant',
+              content: [
+                'Saved.',
+                '<｜DSML｜tool_calls>',
+                '<｜DSML｜invoke name="memory_save">',
+                '<｜DSML｜parameter name="name" string="true">',
+                'n'.repeat(130_000),
+                '</｜DSML｜parameter>',
+                '</｜DSML｜invoke>',
+                '</｜DSML｜tool_calls>',
+              ].join(''),
+            },
+          ],
+        },
+      },
+    };
+
+    stripToolCallsFromHistory(json, {
+      toolDescriptors: createDefaultToolDescriptors(),
+      onToolCallsRestored: (next) => records.push(...next),
+    });
+
+    expect(json.data.biz_data.chat_messages[0].content).toBe('Saved.');
+    expect(records).toHaveLength(1);
+    expect(records[0].calls[0].name).toBe('memory_save');
+    expect(records[0].calls[0].raw).toBe('<memory_save>\n...[restore payload omitted]\n</memory_save>');
+    expect(records[0].calls[0].payload).toEqual({});
   });
 });

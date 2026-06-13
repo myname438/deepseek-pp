@@ -680,6 +680,7 @@ export const en = {
         deleted: 'Deleted',
         searched: 'Searched',
         fetched: 'Fetched',
+        running: 'Running',
         executed: 'Executed',
         failed: 'Execution failed',
         messageFailed: 'Tool message failed',

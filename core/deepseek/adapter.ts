@@ -60,6 +60,7 @@ export interface SubmitPromptInput {
 export interface StreamCallbacks {
   onTextChunk?(text: string, fullText: string): void;
   onFinished?(): void;
+  retainAssistantText?: boolean;
 }
 
 export class DeepSeekAuthError extends Error {
@@ -355,6 +356,7 @@ async function readCompletionStreamWithCallbacks(
   const decoder = new TextDecoder();
   let buffer = '';
   const summary: ModelTurn = { assistantText: '', responseMessageId: null, requestMessageId: null, finished: false };
+  const retainAssistantText = callbacks.retainAssistantText !== false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -367,18 +369,14 @@ async function readCompletionStreamWithCallbacks(
     const complete = buffer.slice(0, boundary + 2);
     buffer = buffer.slice(boundary + 2);
 
-    const prevLen = summary.assistantText.length;
-    consumeSSEText(complete, summary);
-    const newText = summary.assistantText.slice(prevLen);
+    const newText = consumeSSEText(complete, summary, { retainAssistantText });
     if (newText && callbacks.onTextChunk) {
       callbacks.onTextChunk(newText, summary.assistantText);
     }
   }
 
   if (buffer.trim()) {
-    const prevLen = summary.assistantText.length;
-    consumeSSEText(buffer, summary);
-    const newText = summary.assistantText.slice(prevLen);
+    const newText = consumeSSEText(buffer, summary, { retainAssistantText });
     if (newText && callbacks.onTextChunk) {
       callbacks.onTextChunk(newText, summary.assistantText);
     }
@@ -388,17 +386,27 @@ async function readCompletionStreamWithCallbacks(
   return summary;
 }
 
-function consumeSSEText(text: string, summary: ModelTurn) {
+function consumeSSEText(
+  text: string,
+  summary: ModelTurn,
+  options: { retainAssistantText?: boolean } = {},
+): string {
+  const retainAssistantText = options.retainAssistantText !== false;
+  const appendedText: string[] = [];
   const events = parseSSEChunk(text);
   for (const event of events) {
     const parsed = parseSSEData(event.data);
     if (!parsed) continue;
 
     const eventText = extractResponseTextFromParsed(parsed);
-    if (eventText) summary.assistantText += eventText;
+    if (eventText) {
+      appendedText.push(eventText);
+      if (retainAssistantText) summary.assistantText += eventText;
+    }
     if (isStreamFinishedFromParsed(parsed)) summary.finished = true;
     collectMessageIds(parsed, summary);
   }
+  return appendedText.join('');
 }
 
 function collectMessageIds(parsed: unknown, summary: ModelTurn) {

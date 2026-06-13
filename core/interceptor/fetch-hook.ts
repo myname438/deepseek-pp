@@ -11,7 +11,8 @@ import {
 import { stripToolCallsFromHistory, stripToolCallsFromIDBResult } from './history-cleanup';
 import { extractResponseTextFromParsed, isResponseTextPatchPath, isStreamFinishedFromParsed, isThinkingPatchPath, parseSSEChunk, parseSSEData } from './sse-parser';
 import { createResponseTokenSpeedTracker, type ResponseTokenSpeedPayload } from './token-speed';
-import { createToolCallScanGate } from './tool-scan-gate';
+import { createStreamingToolTextAccumulator } from './streaming-tool-text';
+import { createStreamingToolCallParser } from './streaming-tool-call-parser';
 import { extractToolCalls } from './tool-parser';
 
 const COMPLETION_PATH = new URL(DEEPSEEK_API_URL).pathname;
@@ -23,6 +24,7 @@ const TOKEN_SPEED_EMIT_INTERVAL_MS = 250;
 const INITIAL_HOOK_STATE_WAIT_MS = 1_500;
 const DEFAULT_APP_VERSION = '2.0.0';
 const DEEPSEEK_CLIENT_PLATFORM = 'web';
+const RESPONSE_TOOL_FALLBACK_PARSE_MAX_CHARS = 120_000;
 
 let originalFetch: typeof window.fetch;
 let initialHookStateWaitComplete = false;
@@ -36,6 +38,7 @@ interface HookState {
   toolDescriptors: ToolDescriptor[];
   onRequestBody: (body: string) => Promise<RequestBodyModification | null>;
   onHeadersCaptured: (headers: Record<string, string> | null) => void;
+  onToolCallStarted: (call: ToolCall) => void;
   onToolCall: (call: ToolCall) => void;
   onToolCallsRestored: (records: ToolCallRestoreRecord[]) => void;
   onResponseTokenSpeed: (progress: ResponseTokenSpeedPayload) => void;
@@ -47,6 +50,7 @@ let hookState: HookState = {
   toolDescriptors: [...DEFAULT_TOOL_DESCRIPTORS],
   onRequestBody: async () => null,
   onHeadersCaptured: () => {},
+  onToolCallStarted: () => {},
   onToolCall: () => {},
   onToolCallsRestored: () => {},
   onResponseTokenSpeed: () => {},
@@ -304,17 +308,77 @@ function normalizeMessageId(value: unknown): number | null {
   return null;
 }
 
-function notifyNewToolCalls(
-  fullText: string,
-  alreadyNotified: number,
-  descriptors: readonly ToolDescriptor[] = hookState.toolDescriptors,
-  source?: ToolCallSource,
-): number {
-  const calls = extractToolCalls(fullText, { descriptors });
-  for (let i = alreadyNotified; i < calls.length; i++) {
-    hookState.onToolCall(source ? { ...calls[i], source } : calls[i]);
+function createStreamingResponseToolState(
+  descriptors: readonly ToolDescriptor[],
+  getSource: () => ToolCallSource,
+) {
+  const toolText = createStreamingToolTextAccumulator(descriptors);
+  const toolCalls = createStreamingToolCallParser(descriptors);
+  const notifiedToolSignatures = new Set<string>();
+  let fallbackText = '';
+  let fallbackTextTruncated = false;
+
+  const emitStarted = (call: ToolCall) => {
+    const callWithSource = { ...call, source: getSource() };
+    if (shouldRenderStreamingToolStart(callWithSource)) {
+      hookState.onToolCallStarted(callWithSource);
+    }
+  };
+
+  const emitCompleted = (call: ToolCall) => {
+    const callWithSource = { ...call, source: getSource() };
+    notifiedToolSignatures.add(createToolCallNotificationSignature(callWithSource));
+    hookState.onToolCall(callWithSource);
+  };
+
+  return {
+    append(text: string) {
+      toolText.append(text);
+      appendFallbackText(text);
+      const event = toolCalls.append(text);
+      event.started.forEach(emitStarted);
+      event.completed.forEach(emitCompleted);
+    },
+    finish() {
+      toolText.flush();
+      toolCalls.flush();
+      notifyLegacyFallbackToolCalls();
+    },
+    getVisibleText() {
+      return toolText.getVisibleText();
+    },
+  };
+
+  function appendFallbackText(text: string) {
+    if (fallbackTextTruncated) return;
+    if (fallbackText.length + text.length > RESPONSE_TOOL_FALLBACK_PARSE_MAX_CHARS) {
+      fallbackTextTruncated = true;
+      fallbackText = '';
+      return;
+    }
+    fallbackText += text;
   }
-  return calls.length;
+
+  function notifyLegacyFallbackToolCalls() {
+    if (fallbackTextTruncated || !fallbackText.includes('｜DSML｜')) return;
+    for (const call of extractToolCalls(fallbackText, { descriptors })) {
+      const callWithSource = { ...call, source: getSource() };
+      const signature = createToolCallNotificationSignature(callWithSource);
+      if (notifiedToolSignatures.has(signature)) continue;
+      notifiedToolSignatures.add(signature);
+      hookState.onToolCall(callWithSource);
+    }
+  }
+}
+
+function shouldRenderStreamingToolStart(call: ToolCall): boolean {
+  return call.name === 'artifact_create' || call.name === 'artifact_bundle_create';
+}
+
+function createToolCallNotificationSignature(call: ToolCall): string {
+  return call.id
+    ? `id:${call.id}`
+    : `${call.provider?.id ?? ''}:${call.name}:${call.invocationName ?? ''}:${call.raw}`;
 }
 
 function createManualChatToolCallSource(
@@ -609,6 +673,9 @@ class XmlToolStreamFilter {
   private catalog: ToolInvocationCatalog;
   private toolInvocationNames: string[];
   private toolOpenTags: string[];
+  private toolByOpenTag = new Map<string, string>();
+  private toolOpenPrefixes: Set<string>;
+  private maxToolOpenPrefixLength: number;
   private visiblePrompt: string;
   private state: 'NORMAL' | 'SUPPRESSING' = 'NORMAL';
   private currentTool: string | null = null;
@@ -622,6 +689,11 @@ class XmlToolStreamFilter {
     this.visiblePrompt = visiblePrompt;
     this.toolInvocationNames = [...this.catalog.invocationNames];
     this.toolOpenTags = this.toolInvocationNames.map(getToolOpenTag);
+    for (const tool of this.toolInvocationNames) {
+      this.toolByOpenTag.set(getToolOpenTag(tool), tool);
+    }
+    this.toolOpenPrefixes = createPrefixSet(this.toolOpenTags);
+    this.maxToolOpenPrefixLength = Math.max(0, ...this.toolOpenTags.map((tag) => tag.length - 1));
   }
 
   processChunk(chunk: string, controller: ReadableStreamDefaultController<Uint8Array>) {
@@ -802,27 +874,24 @@ class XmlToolStreamFilter {
   }
 
   private findFirstToolOpen(text: string): { idx: number; tool: string } | null {
-    let best: { idx: number; tool: string } | null = null;
-    for (const tool of this.toolInvocationNames) {
-      const open = getToolOpenTag(tool);
-      const idx = text.indexOf(open);
-      if (idx >= 0 && (best === null || idx < best.idx)) {
-        best = { idx, tool };
-      }
+    let searchFrom = 0;
+    while (searchFrom < text.length) {
+      const idx = text.indexOf('<', searchFrom);
+      if (idx === -1) return null;
+
+      const tagEnd = text.indexOf('>', idx + 1);
+      if (tagEnd === -1) return null;
+      const candidate = text.slice(idx, tagEnd + 1);
+      const tool = this.toolByOpenTag.get(candidate);
+      if (tool) return { idx, tool };
+
+      searchFrom = candidate.includes('<', 1) ? idx + 1 : tagEnd + 1;
     }
-    return best;
+    return null;
   }
 
   private couldBePartialToolOpen(text: string): boolean {
-    for (const open of this.toolOpenTags) {
-      const maxLen = Math.min(text.length, open.length - 1);
-      for (let len = maxLen; len > 0; len--) {
-        if (open.startsWith(text.slice(-len))) {
-          return true;
-        }
-      }
-    }
-    return false;
+    return getPartialTailLength(text, this.toolOpenPrefixes, this.maxToolOpenPrefixLength) > 0;
   }
 
   private emitBlocksBeforeOpen(controller: ReadableStreamDefaultController<Uint8Array>, idx: number) {
@@ -851,6 +920,24 @@ class XmlToolStreamFilter {
   }
 }
 
+function createPrefixSet(tags: readonly string[]): Set<string> {
+  const prefixes = new Set<string>();
+  for (const tag of tags) {
+    for (let length = 1; length < tag.length; length++) {
+      prefixes.add(tag.slice(0, length));
+    }
+  }
+  return prefixes;
+}
+
+function getPartialTailLength(text: string, prefixes: Set<string>, maxLength: number): number {
+  const limit = Math.min(text.length, maxLength);
+  for (let length = limit; length > 0; length--) {
+    if (prefixes.has(text.slice(-length))) return length;
+  }
+  return 0;
+}
+
 async function interceptFetchResponse(
   responsePromise: Promise<Response>,
   requestContext: RequestContext,
@@ -862,11 +949,12 @@ async function interceptFetchResponse(
   const decoder = new TextDecoder();
   const toolDescriptors = hookState.toolDescriptors;
   const filter = new XmlToolStreamFilter(toolDescriptors, requestContext.originalPrompt);
-  const toolCallScanGate = createToolCallScanGate(toolDescriptors);
-  let fullText = '';
-  let notifiedCount = 0;
   let textAccBuffer = '';
   let assistantMessageId: number | null = null;
+  const responseToolState = createStreamingResponseToolState(
+    toolDescriptors,
+    () => createManualChatToolCallSource(requestContext, assistantMessageId),
+  );
   const speedTracker = createResponseTokenSpeedTracker(
     hookState.onResponseTokenSpeed,
     TOKEN_SPEED_EMIT_INTERVAL_MS,
@@ -886,16 +974,8 @@ async function interceptFetchResponse(
       assistantMessageId = collectAssistantMessageId(parsed, assistantMessageId);
       const eventText = extractCleanResponseTextForParsing(parsed);
       if (eventText) {
-        fullText += eventText;
+        responseToolState.append(eventText);
         speedTracker.append(eventText);
-        if (toolCallScanGate.shouldScanChunk(eventText)) {
-          notifiedCount = notifyNewToolCalls(
-            fullText,
-            notifiedCount,
-            toolDescriptors,
-            createManualChatToolCallSource(requestContext, assistantMessageId),
-          );
-        }
       } else if (isThinkingPatchPath((parsed as any)?.p) && typeof (parsed as any)?.v === 'string') {
         speedTracker.append((parsed as any).v);
       }
@@ -913,7 +993,7 @@ async function interceptFetchResponse(
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            // Drain any remaining buffered events for fullText
+            // Drain any remaining buffered SSE events.
             if (textAccBuffer.trim()) {
               const events = parseSSEChunk(textAccBuffer);
               for (const event of events) {
@@ -922,16 +1002,8 @@ async function interceptFetchResponse(
                 assistantMessageId = collectAssistantMessageId(parsed, assistantMessageId);
                 const eventText = extractCleanResponseTextForParsing(parsed);
                 if (eventText) {
-                  fullText += eventText;
+                  responseToolState.append(eventText);
                   speedTracker.append(eventText);
-                  if (toolCallScanGate.shouldScanChunk(eventText)) {
-                    notifiedCount = notifyNewToolCalls(
-                      fullText,
-                      notifiedCount,
-                      toolDescriptors,
-                      createManualChatToolCallSource(requestContext, assistantMessageId),
-                    );
-                  }
                 } else if (isThinkingPatchPath((parsed as any)?.p) && typeof (parsed as any)?.v === 'string') {
                   speedTracker.append((parsed as any).v);
                 }
@@ -952,23 +1024,13 @@ async function interceptFetchResponse(
 
       if (cancelled) return;
 
-      // Stream ended — execute any detected tool calls
       try {
-        const calls = extractToolCalls(fullText, { descriptors: toolDescriptors });
-        if (calls.length > 0) {
-          for (const call of calls.slice(notifiedCount)) {
-            if (cancelled) break;
-            hookState.onToolCall({
-              ...call,
-              source: createManualChatToolCallSource(requestContext, assistantMessageId),
-            });
-          }
-        }
+        responseToolState.finish();
 
         if (!cancelled) {
           hookState.onResponseComplete({
             requestId: requestContext.requestId,
-            text: fullText,
+            text: responseToolState.getVisibleText(),
             originalPrompt: requestContext.originalPrompt,
             agentTaskPrompt: requestContext.agentTaskPrompt,
             chatSessionId: requestContext.chatSessionId,
@@ -996,15 +1058,16 @@ async function interceptFetchResponse(
 }
 
 function setupXHRResponseInterceptor(xhr: XMLHttpRequest, requestContext: RequestContext) {
-  let fullText = '';
   let lastLen = 0;
-  let notifiedCount = 0;
   let completed = false;
   let filteredResponse = '';
   let assistantMessageId: number | null = null;
   const toolDescriptors = hookState.toolDescriptors;
   const filter = new XmlToolStreamFilter(toolDescriptors, requestContext.originalPrompt);
-  const toolCallScanGate = createToolCallScanGate(toolDescriptors);
+  const responseToolState = createStreamingResponseToolState(
+    toolDescriptors,
+    () => createManualChatToolCallSource(requestContext, assistantMessageId),
+  );
   const speedTracker = createResponseTokenSpeedTracker(
     hookState.onResponseTokenSpeed,
     TOKEN_SPEED_EMIT_INTERVAL_MS,
@@ -1013,16 +1076,11 @@ function setupXHRResponseInterceptor(xhr: XMLHttpRequest, requestContext: Reques
   const finalizeIfNeeded = () => {
     if (completed) return;
     completed = true;
-    notifiedCount = notifyNewToolCalls(
-      fullText,
-      notifiedCount,
-      toolDescriptors,
-      createManualChatToolCallSource(requestContext, assistantMessageId),
-    );
+    responseToolState.finish();
     speedTracker.finish();
     hookState.onResponseComplete({
       requestId: requestContext.requestId,
-      text: fullText,
+      text: responseToolState.getVisibleText(),
       originalPrompt: requestContext.originalPrompt,
       agentTaskPrompt: requestContext.agentTaskPrompt,
       chatSessionId: requestContext.chatSessionId,
@@ -1056,16 +1114,8 @@ function setupXHRResponseInterceptor(xhr: XMLHttpRequest, requestContext: Reques
           assistantMessageId = collectAssistantMessageId(parsed, assistantMessageId);
           const text = extractCleanResponseTextForParsing(parsed);
           if (text) {
-            fullText += text;
+            responseToolState.append(text);
             speedTracker.append(text);
-            if (toolCallScanGate.shouldScanChunk(text)) {
-              notifiedCount = notifyNewToolCalls(
-                fullText,
-                notifiedCount,
-                toolDescriptors,
-                createManualChatToolCallSource(requestContext, assistantMessageId),
-              );
-            }
           }
           if (isStreamFinishedFromParsed(parsed)) {
             speedTracker.finish();

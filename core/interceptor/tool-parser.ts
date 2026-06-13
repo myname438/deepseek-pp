@@ -8,7 +8,13 @@ import {
   type ToolParsingInput,
 } from '../tool';
 
-const LEGACY_TOOL_CALLS_BLOCK_REGEX = /<｜DSML｜tool_calls>\s*[\s\S]*?\s*<\/｜DSML｜tool_calls>/g;
+export const LEGACY_TOOL_CALLS_OPEN_TAG = '<｜DSML｜tool_calls>';
+export const LEGACY_TOOL_CALLS_CLOSE_TAG = '</｜DSML｜tool_calls>';
+
+const LEGACY_TOOL_CALLS_BLOCK_REGEX = new RegExp(
+  `${escapeRegExp(LEGACY_TOOL_CALLS_OPEN_TAG)}\\s*[\\s\\S]*?\\s*${escapeRegExp(LEGACY_TOOL_CALLS_CLOSE_TAG)}`,
+  'g',
+);
 const LEGACY_INVOKE_REGEX = /<｜DSML｜invoke name="([^"]+)">\s*([\s\S]*?)\s*<\/｜DSML｜invoke>/g;
 const LEGACY_PARAMETER_REGEX = /<｜DSML｜parameter name="([^"]+)" string="(true|false)">([\s\S]*?)<\/｜DSML｜parameter>/g;
 
@@ -145,4 +151,8 @@ function createToolParseError(code: string, invocationName: string, message: str
     retryable: false,
     details: { invocationName },
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

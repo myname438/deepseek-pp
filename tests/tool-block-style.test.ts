@@ -12,4 +12,14 @@ describe('content tool block styles', () => {
     expect(rule).toContain('overflow: auto;');
     expect(rule).toContain('overscroll-behavior: contain;');
   });
+
+  it('keeps rendered tool cleanup bounded for large message bodies', () => {
+    const path = join(process.cwd(), 'entrypoints/content.ts');
+    const source = readFileSync(path, 'utf8');
+
+    expect(source).toContain('CLEANABLE_TEXT_DEEP_SCAN_MAX_CHARS');
+    expect(source).toContain('CLEANUP_MESSAGE_SCAN_LIMIT');
+    expect(source).toContain('hasLikelyToolMarkerPrefix');
+    expect(source).toContain('if (i < minIndex) break;');
+  });
 });

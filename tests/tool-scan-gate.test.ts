@@ -17,4 +17,11 @@ describe('createToolCallScanGate', () => {
     expect(gate.shouldScanChunk('<html><body>ok</body></html>"}</artifact_cre')).toBe(false);
     expect(gate.shouldScanChunk('ate>tail text')).toBe(true);
   });
+
+  it('detects close tags after literal malformed close-like text', () => {
+    const gate = createToolCallScanGate(createArtifactToolDescriptors('en'));
+
+    expect(gate.shouldScanChunk('math </ text > before </artifact_cre')).toBe(false);
+    expect(gate.shouldScanChunk('ate>tail text')).toBe(true);
+  });
 });

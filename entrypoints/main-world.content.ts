@@ -56,6 +56,9 @@ export default defineContentScript({
       onHeadersCaptured(headers: Record<string, string> | null) {
         postToContent({ type: 'HEADERS_CAPTURED', headers });
       },
+      onToolCallStarted(call: ToolCall) {
+        postToContent({ type: 'TOOL_CALL_STARTED', data: call });
+      },
       onToolCall(call: ToolCall) {
         postToContent({ type: 'TOOL_CALL', data: call });
       },

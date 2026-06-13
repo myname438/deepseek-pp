@@ -5,7 +5,9 @@ import {
   type ModelTurn,
   type SubmitPromptInput,
 } from '../deepseek/adapter';
-import { extractToolCalls, stripToolCalls } from '../interceptor/tool-parser';
+import { extractToolCalls } from '../interceptor/tool-parser';
+import { createStreamingToolTextAccumulator } from '../interceptor/streaming-tool-text';
+import { createStreamingToolCallParser } from '../interceptor/streaming-tool-call-parser';
 import { DEFAULT_LOCALE } from '../i18n';
 import { executeToolCallsSequentially } from '../tool-loop/engine';
 import type { ToolCall, ToolDescriptor, ToolExecutionRecord } from '../types';
@@ -33,6 +35,10 @@ import {
 
 type PostFn = (type: string, data: unknown) => void;
 type ExecuteToolFn = (call: ToolCall) => Promise<ToolExecutionRecord>;
+
+const INLINE_AGENT_STREAM_EVENT_MAX_CHARS = 12000;
+const INLINE_AGENT_FALLBACK_PARSE_MAX_CHARS = 120_000;
+const TRUNCATION_SUFFIX = '\n...[truncated]';
 
 export interface InlineAgentLoopDeps {
   post: PostFn;
@@ -68,6 +74,13 @@ export async function runInlineAgentLoop(
 
       const prompt = buildContinuationPrompt(payload.originalPrompt, allExecutions, locale);
       const powHeaders = await createPowHeaders(clientHeaders, powWasmUrl);
+      const streamState = createInlineAgentStreamState({
+        loopId,
+        stepIndex: step,
+        toolDescriptors,
+        parsingInput,
+        post,
+      });
 
       post('AGENT_STEP_STARTED', { loopId, stepIndex: step });
 
@@ -83,30 +96,15 @@ export async function runInlineAgentLoop(
         powHeaders,
       };
 
-      let notifiedToolCount = 0;
       const stepTimeout = createStepSignal(signal);
       const turn: ModelTurn = await submitPromptStreaming(input, {
-        onTextChunk(text, fullText) {
-          const stripped = stripToolCalls(fullText, parsingInput);
-          post('AGENT_STREAM_CHUNK', {
-            loopId,
-            stepIndex: step,
-            text,
-            fullText: stripped,
-          } satisfies InlineAgentStreamChunkMsg);
-
-          const calls = extractToolCalls(fullText, parsingInput);
-          for (let i = notifiedToolCount; i < calls.length; i++) {
-            post('AGENT_TOOL_DETECTED', {
-              loopId,
-              stepIndex: step,
-              call: calls[i],
-            } satisfies InlineAgentToolDetectedMsg);
-          }
-          notifiedToolCount = calls.length;
+        retainAssistantText: false,
+        onTextChunk(text) {
+          streamState.onTextChunk(text);
         },
       }, stepTimeout.signal);
       stepTimeout.clear();
+      const streamSnapshot = streamState.flush();
 
       if (signal.aborted) break;
 
@@ -115,10 +113,10 @@ export async function runInlineAgentLoop(
         totalSteps = step + 1;
         break;
       }
-      const toolCalls = extractToolCalls(turn.assistantText, parsingInput);
-      const visibleText = stripToolCalls(turn.assistantText, parsingInput);
+      const toolCalls = streamSnapshot.toolCalls;
+      const visibleText = streamSnapshot.visibleText;
 
-      if (extractTaskCompleteSignal(turn.assistantText)) {
+      if (extractTaskCompleteSignal(visibleText)) {
         const stepExecutions: ToolExecutionRecord[] = [];
         post('AGENT_STEP_COMPLETE', {
           loopId,
@@ -167,25 +165,29 @@ export async function runInlineAgentLoop(
         const nudgePowHeaders = await createPowHeaders(clientHeaders, powWasmUrl);
         nudgeInput.powHeaders = nudgePowHeaders;
 
+        const nudgeStreamState = createInlineAgentStreamState({
+          loopId,
+          stepIndex: step,
+          toolDescriptors,
+          parsingInput,
+          post,
+          fallbackText: visibleText,
+        });
         const nudgeTimeout = createStepSignal(signal);
         const nudgeTurn = await submitPromptStreaming(nudgeInput, {
-          onTextChunk(text, fullText) {
-            const stripped = stripToolCalls(fullText, parsingInput);
-            post('AGENT_STREAM_CHUNK', {
-              loopId,
-              stepIndex: step,
-              text,
-              fullText: stripped || visibleText,
-            } satisfies InlineAgentStreamChunkMsg);
+          retainAssistantText: false,
+          onTextChunk(text) {
+            nudgeStreamState.onTextChunk(text);
           },
         }, nudgeTimeout.signal);
         nudgeTimeout.clear();
+        const nudgeStreamSnapshot = nudgeStreamState.flush();
 
         if (signal.aborted) break;
 
         parentMessageId = nudgeTurn.responseMessageId;
-        const nudgeToolCalls = extractToolCalls(nudgeTurn.assistantText, parsingInput);
-        const nudgeVisibleText = stripToolCalls(nudgeTurn.assistantText, parsingInput);
+        const nudgeToolCalls = nudgeStreamSnapshot.toolCalls;
+        const nudgeVisibleText = nudgeStreamSnapshot.visibleText;
 
         if (nudgeToolCalls.length === 0) {
           if (!visibleText.trim() && !nudgeVisibleText.trim()) {
@@ -263,31 +265,35 @@ export async function runInlineAgentLoop(
         };
 
         let finalStepStarted = false;
+        const finalStreamState = createInlineAgentStreamState({
+          loopId,
+          stepIndex: totalSteps,
+          toolDescriptors,
+          parsingInput,
+          post,
+        });
         const finalTurn = await submitPromptStreaming(finalInput, {
-          onTextChunk(_text, fullText) {
-            if (!fullText.trim()) return;
+          retainAssistantText: false,
+          onTextChunk(text) {
+            if (!text.trim()) return;
             if (!finalStepStarted) {
               post('AGENT_STEP_STARTED', { loopId, stepIndex: totalSteps });
               finalStepStarted = true;
             }
-            post('AGENT_STREAM_CHUNK', {
-              loopId,
-              stepIndex: totalSteps,
-              text: _text,
-              fullText,
-            } satisfies InlineAgentStreamChunkMsg);
+            finalStreamState.onTextChunk(text);
           },
         }, signal);
+        const finalStreamSnapshot = finalStreamState.flush();
 
-        finalText = finalTurn.assistantText;
+        finalText = finalStreamSnapshot.visibleText;
         if (finalText.trim()) {
           if (!finalStepStarted) {
             post('AGENT_STEP_STARTED', { loopId, stepIndex: totalSteps });
             post('AGENT_STREAM_CHUNK', {
               loopId,
               stepIndex: totalSteps,
-              text: finalText,
-              fullText: finalText,
+              text: '',
+              fullText: clampStreamEventText(finalText),
             } satisfies InlineAgentStreamChunkMsg);
           }
           post('AGENT_STEP_COMPLETE', {
@@ -327,6 +333,101 @@ export async function runInlineAgentLoop(
       error: err instanceof Error ? err.message : String(err),
     } satisfies InlineAgentLoopErrorMsg);
   }
+}
+
+function createInlineAgentStreamState(input: {
+  loopId: string;
+  stepIndex: number;
+  toolDescriptors: readonly ToolDescriptor[];
+  parsingInput: ToolParsingInput;
+  post: PostFn;
+  fallbackText?: string;
+}) {
+  const visibleText = createStreamingToolTextAccumulator(input.toolDescriptors);
+  const toolCallParser = createStreamingToolCallParser(input.toolDescriptors);
+  const completedToolCalls: ToolCall[] = [];
+  const completedToolCallSignatures = new Set<string>();
+  let fallbackText = '';
+  let fallbackTextTruncated = false;
+  let lastPostedText = clampStreamEventText(input.fallbackText ?? '');
+
+  const postVisibleText = (nextText: string) => {
+    const fullText = clampStreamEventText(nextText || input.fallbackText || '');
+    if (fullText === lastPostedText) return;
+    lastPostedText = fullText;
+    input.post('AGENT_STREAM_CHUNK', {
+      loopId: input.loopId,
+      stepIndex: input.stepIndex,
+      text: '',
+      fullText,
+    } satisfies InlineAgentStreamChunkMsg);
+  };
+
+  const addCompletedToolCall = (call: ToolCall) => {
+    const signature = createInlineAgentToolCallSignature(call);
+    if (completedToolCallSignatures.has(signature)) return;
+    completedToolCallSignatures.add(signature);
+    completedToolCalls.push(call);
+    input.post('AGENT_TOOL_DETECTED', {
+      loopId: input.loopId,
+      stepIndex: input.stepIndex,
+      call,
+    } satisfies InlineAgentToolDetectedMsg);
+  };
+
+  return {
+    onTextChunk(text: string) {
+      postVisibleText(visibleText.append(text));
+      appendFallbackText(text);
+
+      const event = toolCallParser.append(text);
+      event.completed.forEach(addCompletedToolCall);
+    },
+    flush() {
+      const finalVisibleText = visibleText.flush();
+      postVisibleText(finalVisibleText);
+      toolCallParser.flush();
+      addFallbackToolCalls();
+      return {
+        visibleText: finalVisibleText,
+        toolCalls: [...completedToolCalls],
+      };
+    },
+  };
+
+  function appendFallbackText(text: string) {
+    if (fallbackTextTruncated) return;
+    if (fallbackText.length + text.length > INLINE_AGENT_FALLBACK_PARSE_MAX_CHARS) {
+      fallbackTextTruncated = true;
+      fallbackText = '';
+      return;
+    }
+    fallbackText += text;
+  }
+
+  function addFallbackToolCalls() {
+    if (fallbackTextTruncated || !shouldFallbackParseToolCalls(fallbackText, completedToolCalls)) return;
+    for (const call of extractToolCalls(fallbackText, input.parsingInput)) {
+      addCompletedToolCall(call);
+    }
+  }
+}
+
+function shouldFallbackParseToolCalls(text: string, completedToolCalls: readonly ToolCall[]): boolean {
+  if (!text) return false;
+  if (text.includes('｜DSML｜')) return true;
+  return completedToolCalls.length === 0 && text.includes('<');
+}
+
+function createInlineAgentToolCallSignature(call: ToolCall): string {
+  if (call.id) return `id:${call.id}`;
+  return `${call.provider?.id ?? ''}:${call.name}:${call.invocationName ?? ''}:${JSON.stringify(call.payload)}`;
+}
+
+function clampStreamEventText(value: string): string {
+  return value.length > INLINE_AGENT_STREAM_EVENT_MAX_CHARS
+    ? `${value.slice(0, INLINE_AGENT_STREAM_EVENT_MAX_CHARS)}${TRUNCATION_SUFFIX}`
+    : value;
 }
 
 function waitBetweenDeepSeekRequests(signal: AbortSignal): Promise<void> {

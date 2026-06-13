@@ -680,6 +680,7 @@ export const zhCN = {
         deleted: '已删除',
         searched: '已搜索',
         fetched: '已获取',
+        running: '执行中',
         executed: '已执行',
         failed: '执行失败',
         messageFailed: '工具消息发送失败',

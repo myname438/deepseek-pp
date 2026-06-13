@@ -1,8 +1,35 @@
 import { DPP_MANAGED_AGENT_PROMPT_MARKER } from '../constants';
 import { sanitizeInternalPromptText } from '../prompt';
-import type { ToolCallRestoreRecord, ToolDescriptor } from '../types';
-import { createToolInvocationCatalog, hasXmlToolMarker } from '../tool';
-import { extractToolCalls, stripToolCalls } from './tool-parser';
+import type { ToolCall, ToolCallRestoreRecord, ToolDescriptor } from '../types';
+import {
+  createToolCallFromInvocation,
+  createToolInvocationCatalog,
+  getToolCloseTag,
+  getToolOpenTag,
+  type ToolInvocationCatalog,
+} from '../tool';
+import {
+  extractToolCalls,
+  LEGACY_TOOL_CALLS_CLOSE_TAG,
+  LEGACY_TOOL_CALLS_OPEN_TAG,
+  stripToolCalls,
+} from './tool-parser';
+
+const RESTORE_FULL_PARSE_MAX_LENGTH = 120_000;
+const RESTORE_CONTENT_MAX_LENGTH = 8000;
+const RESTORE_RAW_MAX_LENGTH = 512;
+const RESTORE_PAYLOAD_STRING_MAX_LENGTH = 2048;
+const RESTORE_PAYLOAD_STRING_PREVIEW_LENGTH = 240;
+const RESTORE_PAYLOAD_ARRAY_MAX_ITEMS = 20;
+const RESTORE_PAYLOAD_OBJECT_MAX_KEYS = 40;
+const RESTORE_PAYLOAD_MAX_DEPTH = 6;
+const RESTORE_OMITTED_PAYLOAD_RAW = '...[restore payload omitted]';
+
+interface LightweightToolBlock {
+  start: number;
+  end: number;
+  invocationNames: string[];
+}
 
 export interface HistoryCleanupOptions {
   toolDescriptors: readonly ToolDescriptor[];
@@ -74,7 +101,7 @@ function stripMessageToolCalls(
     if (typeof msg.content === 'string' && hasToolCallMarker(msg.content, toolDescriptors)) {
       const record = collectToolCallRestoreRecord(msg.content, `${messageKey}:content`, toolDescriptors, metadata);
       if (record) restoredRecords.push(record);
-      msg.content = stripToolCalls(msg.content, { descriptors: toolDescriptors });
+      msg.content = stripToolCallsForHistoryText(msg.content, toolDescriptors);
     }
     if (msg.fragments && Array.isArray(msg.fragments)) {
       msg.fragments.forEach((frag: any, fragIndex: number) => {
@@ -86,7 +113,7 @@ function stripMessageToolCalls(
             metadata,
           );
           if (record) restoredRecords.push(record);
-          frag.content = stripToolCalls(frag.content, { descriptors: toolDescriptors });
+          frag.content = stripToolCallsForHistoryText(frag.content, toolDescriptors);
         }
       });
     }
@@ -94,9 +121,10 @@ function stripMessageToolCalls(
 }
 
 function hasToolCallMarker(text: string, toolDescriptors: readonly ToolDescriptor[]): boolean {
+  if (!text.includes('<')) return false;
+  if (text.includes('｜DSML｜')) return true;
   const catalog = createToolInvocationCatalog(toolDescriptors);
-  if (hasXmlToolMarker(text, catalog)) return true;
-  return text.includes('｜DSML｜');
+  return hasXmlToolMarkerInText(text, catalog);
 }
 
 function hashString(value: string): string {
@@ -150,18 +178,292 @@ function collectToolCallRestoreRecord(
 ): ToolCallRestoreRecord | null {
   if (!hasToolCallMarker(text, toolDescriptors)) return null;
 
-  const calls = extractToolCalls(text, { descriptors: toolDescriptors });
+  let calls: ToolCall[];
+  let content: string;
+  if (text.length > RESTORE_FULL_PARSE_MAX_LENGTH) {
+    const catalog = createToolInvocationCatalog(toolDescriptors);
+    const blocks = findLightweightToolBlocks(text, catalog);
+    calls = createLightweightToolCalls(blocks, catalog);
+    content = stripToolBlocksFromText(text, blocks);
+  } else {
+    calls = extractToolCalls(text, { descriptors: toolDescriptors });
+    content = stripToolCalls(text, { descriptors: toolDescriptors });
+  }
   if (calls.length === 0) return null;
 
-  const content = stripToolCalls(text, { descriptors: toolDescriptors });
-  const id = hashString(`${key}\n${content}\n${calls.map((call) => call.raw).join('\n')}`);
+  const restoreCalls = calls.map(sanitizeToolCallForRestoreRecord);
+  const id = hashString([
+    key,
+    hashString(content),
+    restoreCalls.map(createToolCallRestoreSignature).join('\n'),
+  ].join('\n'));
   return {
     id,
-    calls,
-    content,
+    calls: restoreCalls,
+    content: clampText(content, RESTORE_CONTENT_MAX_LENGTH),
     source: 'history',
     metadata,
   };
+}
+
+function createLightweightToolCalls(
+  blocks: readonly LightweightToolBlock[],
+  catalog: ToolInvocationCatalog,
+): ToolCall[] {
+  const calls: ToolCall[] = [];
+
+  for (const block of blocks) {
+    for (const invocationName of block.invocationNames) {
+      calls.push(createToolCallFromInvocation(
+        invocationName,
+        {},
+        createOmittedToolCallRaw(invocationName),
+        catalog,
+      ));
+    }
+  }
+
+  return calls;
+}
+
+function stripToolCallsForHistoryText(
+  text: string,
+  toolDescriptors: readonly ToolDescriptor[],
+): string {
+  if (text.length <= RESTORE_FULL_PARSE_MAX_LENGTH) {
+    return stripToolCalls(text, { descriptors: toolDescriptors });
+  }
+
+  const catalog = createToolInvocationCatalog(toolDescriptors);
+  const blocks = findLightweightToolBlocks(text, catalog);
+  return stripToolBlocksFromText(text, blocks);
+}
+
+function stripToolBlocksFromText(
+  text: string,
+  blocks: readonly LightweightToolBlock[],
+): string {
+  if (blocks.length === 0) return text.trim();
+
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const block of blocks) {
+    parts.push(text.slice(cursor, block.start));
+    cursor = block.end;
+  }
+  parts.push(text.slice(cursor));
+
+  return parts.join('').trim();
+}
+
+function findLightweightToolBlocks(
+  text: string,
+  catalog: ToolInvocationCatalog,
+): LightweightToolBlock[] {
+  const blocks = [
+    ...findXmlToolBlocks(text, catalog),
+    ...findLegacyToolBlocks(text, catalog),
+  ].sort((a, b) => a.start - b.start || b.end - a.end);
+
+  const nonOverlapping: LightweightToolBlock[] = [];
+  let cursor = 0;
+  for (const block of blocks) {
+    if (block.start < cursor) continue;
+    nonOverlapping.push(block);
+    cursor = block.end;
+  }
+  return nonOverlapping;
+}
+
+function findXmlToolBlocks(
+  text: string,
+  catalog: ToolInvocationCatalog,
+): LightweightToolBlock[] {
+  const blocks: LightweightToolBlock[] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIndex = text.indexOf('<', searchFrom);
+    if (openIndex === -1) break;
+
+    const tagEnd = text.indexOf('>', openIndex + 1);
+    if (tagEnd === -1) break;
+    const invocationName = text.slice(openIndex + 1, tagEnd);
+    if (!catalog.descriptorByInvocationName.has(invocationName)) {
+      searchFrom = invocationName.includes('<') ? openIndex + 1 : tagEnd + 1;
+      continue;
+    }
+
+    const closeTag = getToolCloseTag(invocationName);
+    const closeIndex = text.indexOf(closeTag, tagEnd + 1);
+    if (closeIndex === -1) {
+      searchFrom = tagEnd + 1;
+      continue;
+    }
+
+    blocks.push({
+      start: openIndex,
+      end: closeIndex + closeTag.length,
+      invocationNames: [invocationName],
+    });
+    searchFrom = closeIndex + closeTag.length;
+  }
+
+  return blocks;
+}
+
+function hasXmlToolMarkerInText(
+  text: string,
+  catalog: ToolInvocationCatalog,
+): boolean {
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIndex = text.indexOf('<', searchFrom);
+    if (openIndex === -1) return false;
+
+    const tagEnd = text.indexOf('>', openIndex + 1);
+    if (tagEnd === -1) return false;
+    const nameStart = text[openIndex + 1] === '/' ? openIndex + 2 : openIndex + 1;
+    const invocationName = text.slice(nameStart, tagEnd);
+    if (catalog.descriptorByInvocationName.has(invocationName)) return true;
+
+    searchFrom = invocationName.includes('<') ? openIndex + 1 : tagEnd + 1;
+  }
+
+  return false;
+}
+
+function findLegacyToolBlocks(
+  text: string,
+  catalog: ToolInvocationCatalog,
+): LightweightToolBlock[] {
+  const blocks: LightweightToolBlock[] = [];
+  let searchFrom = 0;
+
+  while (searchFrom < text.length) {
+    const openIndex = text.indexOf(LEGACY_TOOL_CALLS_OPEN_TAG, searchFrom);
+    if (openIndex === -1) break;
+
+    const closeIndex = text.indexOf(
+      LEGACY_TOOL_CALLS_CLOSE_TAG,
+      openIndex + LEGACY_TOOL_CALLS_OPEN_TAG.length,
+    );
+    if (closeIndex === -1) break;
+
+    const end = closeIndex + LEGACY_TOOL_CALLS_CLOSE_TAG.length;
+    blocks.push({
+      start: openIndex,
+      end,
+      invocationNames: findLegacyInvocationNames(text, openIndex, end, catalog),
+    });
+    searchFrom = end;
+  }
+
+  return blocks;
+}
+
+function findLegacyInvocationNames(
+  text: string,
+  start: number,
+  end: number,
+  catalog: ToolInvocationCatalog,
+): string[] {
+  const names: string[] = [];
+  const invokePrefix = '<｜DSML｜invoke name="';
+  let searchFrom = start;
+
+  while (searchFrom < end) {
+    const invokeIndex = text.indexOf(invokePrefix, searchFrom);
+    if (invokeIndex === -1 || invokeIndex >= end) break;
+
+    const nameStart = invokeIndex + invokePrefix.length;
+    const nameEnd = text.indexOf('"', nameStart);
+    if (nameEnd === -1 || nameEnd >= end) break;
+
+    const invocationName = text.slice(nameStart, nameEnd);
+    if (catalog.descriptorByInvocationName.has(invocationName)) {
+      names.push(invocationName);
+    }
+    searchFrom = nameEnd + 1;
+  }
+
+  return names;
+}
+
+function createOmittedToolCallRaw(invocationName: string): string {
+  return [
+    getToolOpenTag(invocationName),
+    RESTORE_OMITTED_PAYLOAD_RAW,
+    getToolCloseTag(invocationName),
+  ].join('\n');
+}
+
+function sanitizeToolCallForRestoreRecord(call: ToolCall): ToolCall {
+  return {
+    ...call,
+    raw: clampText(call.raw, RESTORE_RAW_MAX_LENGTH) ?? '',
+    payload: sanitizeRestorePayload(call.payload),
+  };
+}
+
+function sanitizeRestorePayload(payload: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = sanitizeRestoreValue(payload, 0);
+  return sanitized && typeof sanitized === 'object' && !Array.isArray(sanitized)
+    ? sanitized as Record<string, unknown>
+    : {};
+}
+
+function sanitizeRestoreValue(value: unknown, depth: number): unknown {
+  if (typeof value === 'string') return sanitizeRestoreString(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (depth >= RESTORE_PAYLOAD_MAX_DEPTH) return { __dppRestoreMaxDepth: true };
+
+  if (Array.isArray(value)) {
+    const items = value
+      .slice(0, RESTORE_PAYLOAD_ARRAY_MAX_ITEMS)
+      .map((item) => sanitizeRestoreValue(item, depth + 1));
+    if (value.length <= RESTORE_PAYLOAD_ARRAY_MAX_ITEMS) return items;
+    return [
+      ...items,
+      {
+        __dppRestoreOmittedItems: value.length - RESTORE_PAYLOAD_ARRAY_MAX_ITEMS,
+      },
+    ];
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>);
+  const keptEntries = entries
+    .slice(0, RESTORE_PAYLOAD_OBJECT_MAX_KEYS)
+    .map(([entryKey, entryValue]) => [entryKey, sanitizeRestoreValue(entryValue, depth + 1)]);
+
+  if (entries.length > RESTORE_PAYLOAD_OBJECT_MAX_KEYS) {
+    keptEntries.push([
+      '__dppRestoreOmittedKeys',
+      entries.length - RESTORE_PAYLOAD_OBJECT_MAX_KEYS,
+    ]);
+  }
+
+  return Object.fromEntries(keptEntries);
+}
+
+function sanitizeRestoreString(value: string): unknown {
+  if (value.length <= RESTORE_PAYLOAD_STRING_MAX_LENGTH) return value;
+  return {
+    __dppRestoreTruncatedText: true,
+    length: value.length,
+    hash: hashString(value),
+    preview: value.slice(0, RESTORE_PAYLOAD_STRING_PREVIEW_LENGTH),
+  };
+}
+
+function createToolCallRestoreSignature(call: ToolCall): string {
+  return `${call.provider?.id ?? ''}:${call.name}:${call.invocationName ?? ''}:${JSON.stringify(call.payload)}`;
+}
+
+function clampText(value: string | undefined, maxLength: number): string | undefined {
+  if (!value) return value;
+  return value.length > maxLength ? `${value.slice(0, maxLength)}\n...[truncated]` : value;
 }
 
 function sanitizeStoredMessageInternalPrompt(msg: any) {

@@ -328,6 +328,8 @@ export interface ToolCall extends GenericToolCall {}
 export interface ToolCardResult extends Pick<GenericToolResult, 'ok' | 'summary' | 'detail' | 'output' | 'truncated' | 'error'> {}
 
 export interface ToolExecutionRecord {
+  callId?: string;
+  pending?: boolean;
   name: string;
   result: ToolCardResult;
   provider?: ToolProviderIdentity;
