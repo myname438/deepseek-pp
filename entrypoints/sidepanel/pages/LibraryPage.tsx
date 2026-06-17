@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import type { LocaleMessageKey } from '../../../core/i18n';
 import MemoryPage from './MemoryPage';
 import SavedPage from './SavedPage';
+import { SubTabs } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 
 type LibrarySubTab = 'memory' | 'saved';
 
-const SUB_TABS: { key: LibrarySubTab; labelKey: LocaleMessageKey }[] = [
+const SUB_TABS: { key: LibrarySubTab; labelKey: 'sidepanel.libraryPage.tabs.memory' | 'sidepanel.libraryPage.tabs.saved' }[] = [
   { key: 'memory', labelKey: 'sidepanel.libraryPage.tabs.memory' },
   { key: 'saved', labelKey: 'sidepanel.libraryPage.tabs.saved' },
 ];
@@ -21,18 +21,12 @@ export default function LibraryPage({ onInsertPrompt }: LibraryPageProps) {
 
   return (
     <div className="flex flex-col h-full">
-      <nav className="sub-tabs" aria-label={t('sidepanel.libraryPage.navLabel')}>
-        {SUB_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setSub(tab.key)}
-            className={`sub-tab${sub === tab.key ? ' sub-tab-active' : ''}`}
-          >
-            {t(tab.labelKey)}
-          </button>
-        ))}
-      </nav>
+      <SubTabs
+        tabs={SUB_TABS.map((tab) => ({ key: tab.key, label: t(tab.labelKey) }))}
+        value={sub}
+        onChange={setSub}
+        ariaLabel={t('sidepanel.libraryPage.navLabel')}
+      />
 
       <div className="flex-1 overflow-y-auto">
         {sub === 'memory' && <MemoryPage />}

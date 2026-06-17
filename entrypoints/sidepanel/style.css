@@ -675,6 +675,35 @@ input[type='range'] {
   line-height: 1.58;
 }
 
+/* Loading skeleton — shimmer placeholder for first-paint lists */
+.ds-skeleton {
+  display: block;
+  height: 10px;
+  background: linear-gradient(
+    90deg,
+    var(--ds-surface) 0%,
+    color-mix(in srgb, var(--ds-surface) 60%, var(--ds-card)) 50%,
+    var(--ds-surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: ds-skeleton-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes ds-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-skeleton { animation: none; }
+}
+
+/* SegmentedControl container — flex handled by utility classes, this just
+   reserves the hook for future theming without overriding layout. */
+.ds-segmented {
+  /* layout via Tailwind flex/flex-wrap/gap classes on the element */
+}
+
 /* Chat */
 .ds-chat-page {
   display: flex;
@@ -1190,4 +1219,93 @@ input[type='range'] {
 .ds-switch-thumb {
   background: var(--ds-switch-thumb);
   box-shadow: var(--ds-shadow-sm);
+}
+
+/* Settings sub-tabs host: sticky sub-tabs + scrollable content */
+.ds-settings-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ds-settings-content {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 28px;
+}
+
+/* Settings section headers — denser than ds-page-intro, ties to the panel below */
+.ds-settings-section-title {
+  margin: 0;
+  padding-left: 2px;
+  color: var(--ds-text);
+  font-size: 12px;
+  font-weight: 680;
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+.ds-settings-section-description {
+  margin: 2px 0 0;
+  padding-left: 2px;
+  color: var(--ds-text-tertiary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Confirm dialog (replaces window.confirm for destructive actions) */
+.ds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 20, 35, 0.42);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: ds-modal-fade 0.14s ease-out;
+}
+
+.ds-modal-card {
+  width: 100%;
+  max-width: 360px;
+  padding: 18px 18px 14px;
+  border-radius: 14px;
+  background: var(--ds-card);
+  box-shadow: var(--ds-shadow-lg);
+  animation: ds-modal-pop 0.16s ease-out;
+}
+
+.ds-modal-title {
+  margin: 0;
+  color: var(--ds-text);
+  font-size: 14px;
+  font-weight: 680;
+  line-height: 1.3;
+}
+
+.ds-modal-message {
+  margin: 8px 0 16px;
+  color: var(--ds-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ds-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@keyframes ds-modal-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ds-modal-pop {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }

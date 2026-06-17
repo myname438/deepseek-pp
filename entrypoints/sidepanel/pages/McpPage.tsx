@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   SHELL_MCP_NATIVE_HOST,
   SHELL_MCP_SERVER_NAME,
@@ -31,11 +31,19 @@ import type {
 } from '../../../core/types';
 import PageIntro from '../components/PageIntro';
 import { useI18n } from '../i18n';
+import {
+  SettingsSection,
+  StatusMessage,
+  ToggleRow,
+  useConfirm,
+} from '../components/settings/primitives';
 
 type McpTransportKind = McpServerTransportConfig['kind'];
 type CacheByServer = Record<string, McpToolCacheEntry | null>;
 type BusyAction = 'refresh' | 'test' | 'permission';
 type Translator = (key: LocaleMessageKey, params?: MessageParams) => string;
+type MessageTone = 'success' | 'error' | 'info';
+type Banner = { tone: MessageTone; text: string };
 
 type FormState = {
   displayName: string;
@@ -97,11 +105,27 @@ export default function McpPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<McpServerConfig | null>(null);
   const [busy, setBusy] = useState<Record<string, BusyAction | null>>({});
-  const [message, setMessage] = useState('');
+  const [banner, setBanner] = useState<Banner | null>(null);
   const [platform, setPlatform] = useState<PlatformEnvironment | null>(null);
+  const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const selectionInitialized = useRef(false);
 
-  const selected = servers.find((server) => server.id === selectedId) ?? servers[0] ?? null;
-  const selectedCache = selected ? caches[selected.id] ?? null : null;
+  const { confirm, node: confirmNode } = useConfirm();
+
+  const showBanner = (tone: MessageTone, text: string) => {
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    setBanner({ tone, text });
+    // Success banners auto-dismiss after 4s; errors/info stay until replaced.
+    if (tone === 'success') {
+      dismissTimer.current = setTimeout(() => setBanner(null), 4000);
+    }
+  };
+  const clearBanner = () => {
+    if (dismissTimer.current) clearTimeout(dismissTimer.current);
+    setBanner(null);
+  };
+
+  const selected = selectedId ? servers.find((server) => server.id === selectedId) ?? null : null;
   const enabledCount = servers.filter((server) => server.enabled).length;
   const toolCount = useMemo(
     () => servers.reduce((sum, server) => sum + enabledToolCount(server, caches[server.id]?.descriptors ?? []), 0),
@@ -120,9 +144,11 @@ export default function McpPage() {
       const nextServers = list ?? [];
       setPlatform(environment ?? null);
       setServers(nextServers);
+      const shouldSelectInitialServer = !selectionInitialized.current && nextServers.length > 0;
+      if (shouldSelectInitialServer) selectionInitialized.current = true;
       setSelectedId((current) => {
         if (current && nextServers.some((server) => server.id === current)) return current;
-        return nextServers[0]?.id ?? null;
+        return shouldSelectInitialServer ? nextServers[0]?.id ?? null : null;
       });
 
       const cacheEntries = await Promise.all(
@@ -142,7 +168,7 @@ export default function McpPage() {
       });
       setHistory(recent ?? []);
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : t('sidepanel.mcpPage.messages.loadFailed'));
+      showBanner('error', err instanceof Error ? err.message : t('sidepanel.mcpPage.messages.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -180,14 +206,14 @@ export default function McpPage() {
 
   const startCreate = () => {
     setEditing(null);
-    setMessage('');
+    clearBanner();
     setShowForm((prev) => !prev);
   };
 
   const createShellPreset = async () => {
-    setMessage('');
+    clearBanner();
     if (!nativeMessagingSupported) {
-      setMessage(t('sidepanel.mcpPage.messages.nativeMessagingUnsupported'));
+      showBanner('error', t('sidepanel.mcpPage.messages.nativeMessagingUnsupported'));
       return;
     }
     const existing = servers.find((server) =>
@@ -196,7 +222,7 @@ export default function McpPage() {
     );
     if (existing) {
       setSelectedId(existing.id);
-      setMessage(t('sidepanel.mcpPage.messages.shellExistsSelected'));
+      showBanner('info', t('sidepanel.mcpPage.messages.shellExistsSelected'));
       return;
     }
 
@@ -205,18 +231,18 @@ export default function McpPage() {
       payload: createShellMcpPresetInput(),
     });
     if (!server) {
-      setMessage(t('sidepanel.mcpPage.messages.shellCreateFailed'));
+      showBanner('error', t('sidepanel.mcpPage.messages.shellCreateFailed'));
       return;
     }
     setSelectedId(server.id);
-    setMessage(t('sidepanel.mcpPage.messages.shellCreated'));
+    showBanner('success', t('sidepanel.mcpPage.messages.shellCreated'));
     await load();
   };
 
   const createMultimodalPreset = async () => {
-    setMessage('');
+    clearBanner();
     if (!nativeMessagingSupported) {
-      setMessage(t('sidepanel.mcpPage.messages.nativeMessagingUnsupported'));
+      showBanner('error', t('sidepanel.mcpPage.messages.nativeMessagingUnsupported'));
       return;
     }
     const existing = servers.find((server) =>
@@ -225,7 +251,7 @@ export default function McpPage() {
     );
     if (existing) {
       setSelectedId(existing.id);
-      setMessage(t('sidepanel.mcpPage.messages.multimodalExistsSelected'));
+      showBanner('info', t('sidepanel.mcpPage.messages.multimodalExistsSelected'));
       return;
     }
 
@@ -234,17 +260,17 @@ export default function McpPage() {
       payload: createMultimodalMcpPresetInput(),
     });
     if (!server) {
-      setMessage(t('sidepanel.mcpPage.messages.multimodalCreateFailed'));
+      showBanner('error', t('sidepanel.mcpPage.messages.multimodalCreateFailed'));
       return;
     }
     setSelectedId(server.id);
-    setMessage(t('sidepanel.mcpPage.messages.multimodalCreated'));
+    showBanner('success', t('sidepanel.mcpPage.messages.multimodalCreated'));
     await load();
   };
 
   const startEdit = (server: McpServerConfig) => {
     setEditing(server);
-    setMessage('');
+    clearBanner();
     setShowForm(true);
   };
 
@@ -261,18 +287,24 @@ export default function McpPage() {
       : await chrome.runtime.sendMessage({ type: 'CREATE_MCP_SERVER', payload: requestPayload });
 
     if (!response) {
-      setMessage(t('sidepanel.mcpPage.messages.saveFailed'));
+      showBanner('error', t('sidepanel.mcpPage.messages.saveFailed'));
       return;
     }
 
     setShowForm(false);
     setEditing(null);
-    setMessage('');
+    clearBanner();
     await load();
   };
 
   const removeServer = async (server: McpServerConfig) => {
-    if (!confirm(t('sidepanel.mcpPage.messages.deleteConfirm', { name: server.displayName }))) return;
+    const ok = await confirm({
+      title: t('sidepanel.mcpPage.messages.deleteConfirm', { name: server.displayName }),
+      message: t('sidepanel.mcpPage.messages.deleteConfirm', { name: server.displayName }),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'DELETE_MCP_SERVER', payload: { id: server.id } });
     if (selectedId === server.id) setSelectedId(null);
     await load();
@@ -288,12 +320,14 @@ export default function McpPage() {
 
   const requestPermission = async (server: McpServerConfig) => {
     setBusyState(server.id, 'permission');
-    setMessage('');
+    clearBanner();
     try {
       const result = await requestMcpOriginPermission(server);
-      setMessage(result?.ok
-        ? t('sidepanel.mcpPage.messages.permissionGranted', { origin: result.origin ?? t('sidepanel.mcpPage.localHost') })
-        : (result?.error ?? t('sidepanel.mcpPage.messages.permissionDenied')));
+      if (result?.ok) {
+        showBanner('success', t('sidepanel.mcpPage.messages.permissionGranted', { origin: result.origin ?? t('sidepanel.mcpPage.localHost') }));
+      } else {
+        showBanner('error', result?.error ?? t('sidepanel.mcpPage.messages.permissionDenied'));
+      }
     } finally {
       setBusyState(server.id, null);
     }
@@ -301,12 +335,12 @@ export default function McpPage() {
 
   const refreshServer = async (server: McpServerConfig, action: 'refresh' | 'test') => {
     setBusyState(server.id, action);
-    setMessage('');
+    clearBanner();
     try {
       if (requiresOriginPermission(server)) {
         const permission = await requestMcpOriginPermission(server);
         if (!permission?.ok) {
-          setMessage(permission?.error ?? t('sidepanel.mcpPage.messages.permissionRequired', {
+          showBanner('error', permission?.error ?? t('sidepanel.mcpPage.messages.permissionRequired', {
             origin: permission?.origin ?? 'MCP Host',
           }));
           return;
@@ -319,12 +353,14 @@ export default function McpPage() {
       const cache: McpToolCacheEntry | null = result?.cache ?? result ?? null;
       if (cache) {
         setCaches((prev) => ({ ...prev, [server.id]: cache }));
-        setMessage(cache.health.status === 'ready'
-          ? t('sidepanel.mcpPage.messages.connectionSuccess', {
+        if (cache.health.status === 'ready') {
+          showBanner('success', t('sidepanel.mcpPage.messages.connectionSuccess', {
             tools: cache.health.toolCount,
             latency: formatMs(cache.health.latencyMs),
-          })
-          : cache.health.error ?? t('sidepanel.mcpPage.messages.connectionFailed'));
+          }));
+        } else {
+          showBanner('error', cache.health.error ?? t('sidepanel.mcpPage.messages.connectionFailed'));
+        }
       }
       await load();
     } finally {
@@ -383,10 +419,10 @@ export default function McpPage() {
         )}
       />
 
-      {message && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)', border: '1px solid var(--ds-border)' }}>
-          {message}
-        </div>
+      {banner && (
+        <StatusMessage tone={banner.tone === 'info' ? 'success' : banner.tone}>
+          {banner.text}
+        </StatusMessage>
       )}
 
       {showForm && (
@@ -396,51 +432,76 @@ export default function McpPage() {
             initial={editing}
             platform={platform}
             onSave={saveServer}
-            onCancel={() => { setShowForm(false); setEditing(null); setMessage(''); }}
+            onCancel={() => { setShowForm(false); setEditing(null); clearBanner(); }}
           />
         </div>
       )}
 
+      {confirmNode}
+
       {loading && servers.length === 0 ? (
         <EmptyState label={t('sidepanel.mcpPage.loading')} />
       ) : servers.length === 0 && !showForm ? (
-        <EmptyState label={t('sidepanel.mcpPage.empty')} />
+        <EmptyState
+          label={t('sidepanel.mcpPage.empty')}
+          hint={t('sidepanel.mcpPage.emptyHint')}
+          actions={
+            <>
+              <button
+                onClick={startCreate}
+                className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+                {t('sidepanel.mcpPage.emptyCreateAction')}
+              </button>
+              {nativeMessagingSupported && (
+                <button
+                  onClick={createShellPreset}
+                  className="ds-btn-secondary px-3 py-1.5 text-xs rounded-lg transition-all duration-150"
+                >
+                  {t('sidepanel.mcpPage.emptyInstallShell')}
+                </button>
+              )}
+            </>
+          }
+        />
       ) : (
-        <div className="space-y-3">
-          <div className="space-y-2">
-            {servers.map((server) => (
-              <ServerRow
-                key={server.id}
-                server={server}
-                cache={caches[server.id] ?? null}
-                selected={selected?.id === server.id}
-                busy={busy[server.id] ?? null}
-                onSelect={() => setSelectedId(server.id)}
-                onToggle={() => patchServer(server, { enabled: !server.enabled })}
-                onEdit={() => startEdit(server)}
-                onDelete={() => removeServer(server)}
-                onRefresh={() => refreshServer(server, 'refresh')}
-                onTest={() => refreshServer(server, 'test')}
-                t={t}
-              />
-            ))}
-          </div>
-
-          {selected && (
-            <ServerDetail
-              server={selected}
-              cache={selectedCache}
-              history={mcpHistory}
-              busy={busy[selected.id] ?? null}
-              onPatch={(patch) => patchServer(selected, patch)}
-              onRequestPermission={() => requestPermission(selected)}
-              onRefresh={() => refreshServer(selected, 'refresh')}
-              onTest={() => refreshServer(selected, 'test')}
-              onToggleTool={(tool) => toggleTool(selected, tool)}
-              t={t}
-              locale={locale}
-            />
-          )}
+        <div className="space-y-2">
+          {servers.map((server) => {
+            const isSelected = selected?.id === server.id;
+            return (
+              <div key={server.id} className="space-y-2">
+                <ServerRow
+                  server={server}
+                  cache={caches[server.id] ?? null}
+                  selected={isSelected}
+                  expanded={isSelected}
+                  onSelect={() => setSelectedId(isSelected ? null : server.id)}
+                  onToggle={() => patchServer(server, { enabled: !server.enabled })}
+                  onEdit={() => startEdit(server)}
+                  onDelete={() => removeServer(server)}
+                  t={t}
+                />
+                {isSelected && (
+                  <ServerDetail
+                    server={server}
+                    cache={caches[server.id] ?? null}
+                    history={mcpHistory}
+                    busy={busy[server.id] ?? null}
+                    onPatch={(patch) => patchServer(server, patch)}
+                    onRequestPermission={() => requestPermission(server)}
+                    onRefresh={() => refreshServer(server, 'refresh')}
+                    onTest={() => refreshServer(server, 'test')}
+                    onToggleTool={(tool) => toggleTool(server, tool)}
+                    t={t}
+                    locale={locale}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -495,20 +556,19 @@ function McpServerForm({
     await onSave(result.payload);
   };
 
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
   return (
     <div className="ds-form rounded-lg p-3 space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
           {initial ? t('sidepanel.mcpPage.form.editTitle') : t('sidepanel.mcpPage.form.createTitle')}
         </div>
-        <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ds-text-secondary)' }}>
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            onChange={(event) => update('enabled', event.target.checked)}
-          />
-          {t('sidepanel.mcpPage.enabled')}
-        </label>
+        <ToggleRow
+          title={t('sidepanel.mcpPage.enabled')}
+          enabled={form.enabled}
+          onToggle={(next) => update('enabled', next)}
+        />
       </div>
 
       {error && (
@@ -517,52 +577,68 @@ function McpServerForm({
         </div>
       )}
 
-      <Field label={t('sidepanel.mcpPage.form.name')}>
-        <input
-          value={form.displayName}
-          onChange={(event) => update('displayName', event.target.value)}
-          className="ds-input w-full rounded-lg px-3 py-2 text-sm"
-          placeholder="Filesystem MCP"
-        />
-      </Field>
-
-      <Field label={t('sidepanel.mcpPage.form.transport')}>
-        <select
-          value={form.transportKind}
-          onChange={(event) => setTransportKind(event.target.value as McpTransportKind)}
-          className="ds-input w-full rounded-lg px-3 py-2 text-sm"
-        >
-          {transportOptions.map((item) => (
-            <option key={item.kind} value={item.kind}>{item.label}</option>
-          ))}
-        </select>
-        <div className="text-[11px] mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>{t(selectedTransport.hintKey)}</div>
-      </Field>
-
-      {form.transportKind !== 'native_messaging' && (
-        <Field label={form.transportKind === 'stdio_bridge' ? 'Bridge URL' : t('sidepanel.mcpPage.form.serviceUrl')}>
+      <SettingsSection title={t('sidepanel.mcpPage.form.basic')}>
+        <Field label={t('sidepanel.mcpPage.form.name')}>
           <input
-            value={form.url}
-            onChange={(event) => update('url', event.target.value)}
+            value={form.displayName}
+            onChange={(event) => update('displayName', event.target.value)}
             className="ds-input w-full rounded-lg px-3 py-2 text-sm"
-            placeholder={form.transportKind === 'stdio_bridge' ? 'http://127.0.0.1:8765/mcp' : 'https://example.com/mcp'}
+            placeholder="Filesystem MCP"
           />
         </Field>
-      )}
 
-      {form.transportKind === 'native_messaging' && (
-        <Field label="Native Host">
-          <input
-            value={form.nativeHost}
-            onChange={(event) => update('nativeHost', event.target.value)}
-            className="ds-input w-full rounded-lg px-3 py-2 text-sm"
-            placeholder="com.example.mcp_host"
-          />
-        </Field>
-      )}
+        <div>
+          <span className="block text-xs mb-1" style={{ color: 'var(--ds-text-secondary)' }}>{t('sidepanel.mcpPage.form.transport')}</span>
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('sidepanel.mcpPage.form.transport')}>
+            {transportOptions.map((item) => {
+              const active = item.kind === form.transportKind;
+              return (
+                <button
+                  key={item.kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setTransportKind(item.kind)}
+                  className="px-2.5 py-1.5 text-[11px] font-medium rounded-lg border transition-all duration-150"
+                  style={{
+                    background: active ? 'var(--ds-blue-light)' : 'var(--ds-bg)',
+                    color: active ? 'var(--ds-blue)' : 'var(--ds-text-secondary)',
+                    borderColor: active ? 'var(--ds-selected-border)' : 'var(--ds-border)',
+                  }}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="text-[11px] mt-1.5" style={{ color: 'var(--ds-text-tertiary)' }}>{t(selectedTransport.hintKey)}</div>
+        </div>
+
+        {form.transportKind !== 'native_messaging' && (
+          <Field label={form.transportKind === 'stdio_bridge' ? 'Bridge URL' : t('sidepanel.mcpPage.form.serviceUrl')}>
+            <input
+              value={form.url}
+              onChange={(event) => update('url', event.target.value)}
+              className="ds-input w-full rounded-lg px-3 py-2 text-sm"
+              placeholder={form.transportKind === 'stdio_bridge' ? 'http://127.0.0.1:8765/mcp' : 'https://example.com/mcp'}
+            />
+          </Field>
+        )}
+
+        {form.transportKind === 'native_messaging' && (
+          <Field label="Native Host">
+            <input
+              value={form.nativeHost}
+              onChange={(event) => update('nativeHost', event.target.value)}
+              className="ds-input w-full rounded-lg px-3 py-2 text-sm"
+              placeholder="com.example.mcp_host"
+            />
+          </Field>
+        )}
+      </SettingsSection>
 
       {form.transportKind === 'stdio_bridge' && (
-        <div className="space-y-2">
+        <SettingsSection title={t('sidepanel.mcpPage.form.stdioSection')}>
           <Field label={t('sidepanel.mcpPage.form.command')}>
             <input
               value={form.command}
@@ -587,61 +663,77 @@ function McpServerForm({
               placeholder="/Users/me/project"
             />
           </Field>
-        </div>
-      )}
-
-      {form.transportKind === 'stdio_bridge' && (
-        <Field label={t('sidepanel.mcpPage.form.env')}>
-          <textarea
-            value={form.env}
-            onChange={(event) => update('env', event.target.value)}
-            className="ds-input w-full rounded-lg px-3 py-2 text-sm min-h-18 resize-y"
-            placeholder={'KEY=value\nTOKEN=...'}
-          />
-        </Field>
-      )}
-
-      {form.transportKind !== 'native_messaging' && (
-        <HeaderEditor
-          headers={form.headers}
-          secrets={form.secrets}
-          onHeadersChange={(headers) => update('headers', headers)}
-          onSecretsChange={(secrets) => update('secrets', secrets)}
-        />
-      )}
-
-      <div className="grid grid-cols-3 gap-2">
-        <NumberField label={t('sidepanel.mcpPage.form.connectMs')} value={form.connectMs} onChange={(value) => update('connectMs', value)} />
-        <NumberField label={t('sidepanel.mcpPage.form.requestMs')} value={form.requestMs} onChange={(value) => update('requestMs', value)} />
-        <NumberField label={t('sidepanel.mcpPage.form.discoveryMs')} value={form.discoveryMs} onChange={(value) => update('discoveryMs', value)} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField label={t('sidepanel.mcpPage.form.resultBytes')} value={form.maxResultBytes} onChange={(value) => update('maxResultBytes', value)} />
-        <NumberField label={t('sidepanel.mcpPage.form.toolLimit')} value={form.maxToolCount} onChange={(value) => update('maxToolCount', value)} />
-      </div>
-
-      <div className="ds-surface-panel rounded-lg p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.mcpPage.form.defaultExecution')}</span>
-          <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ds-text-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={form.executionEnabled}
-              onChange={(event) => update('executionEnabled', event.target.checked)}
+          <Field label={t('sidepanel.mcpPage.form.env')}>
+            <textarea
+              value={form.env}
+              onChange={(event) => update('env', event.target.value)}
+              className="ds-input w-full rounded-lg px-3 py-2 text-sm min-h-18 resize-y"
+              placeholder={'KEY=value\nTOKEN=...'}
             />
-            {t('sidepanel.mcpPage.form.allowInject')}
-          </label>
-        </div>
-        <select
-          value={form.executionMode}
-          onChange={(event) => update('executionMode', event.target.value as ToolExecutionMode)}
-          className="ds-input w-full rounded-lg px-3 py-2 text-sm"
+          </Field>
+        </SettingsSection>
+      )}
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setAdvancedOpen((prev) => !prev)}
+          className="flex items-center gap-1.5 text-xs font-medium w-full"
+          style={{ color: 'var(--ds-text-secondary)' }}
         >
-          <option value="auto">{t('sidepanel.mcpPage.form.modeAuto')}</option>
-          <option value="manual">{t('sidepanel.mcpPage.form.modeManual')}</option>
-          <option value="disabled">{t('sidepanel.mcpPage.form.modeDisabled')}</option>
-        </select>
+          <svg
+            className="w-3 h-3 transition-transform duration-200"
+            style={{ transform: advancedOpen ? 'rotate(90deg)' : 'rotate(0)' }}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          {t('sidepanel.mcpPage.form.advanced')}
+          <span className="text-[10px] font-normal" style={{ color: 'var(--ds-text-tertiary)' }}>
+            · {t('sidepanel.mcpPage.form.advancedHint')}
+          </span>
+        </button>
+        {advancedOpen && (
+          <div className="mt-2 space-y-3">
+            {form.transportKind !== 'native_messaging' && (
+              <HeaderEditor
+                headers={form.headers}
+                secrets={form.secrets}
+                onHeadersChange={(headers) => update('headers', headers)}
+                onSecretsChange={(secrets) => update('secrets', secrets)}
+              />
+            )}
+
+            <div className="grid grid-cols-3 gap-2">
+              <NumberField label={t('sidepanel.mcpPage.form.connectMs')} value={form.connectMs} onChange={(value) => update('connectMs', value)} />
+              <NumberField label={t('sidepanel.mcpPage.form.requestMs')} value={form.requestMs} onChange={(value) => update('requestMs', value)} />
+              <NumberField label={t('sidepanel.mcpPage.form.discoveryMs')} value={form.discoveryMs} onChange={(value) => update('discoveryMs', value)} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <NumberField label={t('sidepanel.mcpPage.form.resultBytes')} value={form.maxResultBytes} onChange={(value) => update('maxResultBytes', value)} />
+              <NumberField label={t('sidepanel.mcpPage.form.toolLimit')} value={form.maxToolCount} onChange={(value) => update('maxToolCount', value)} />
+            </div>
+
+            <div className="ds-surface-panel rounded-lg p-3 space-y-2">
+              <ToggleRow
+                title={t('sidepanel.mcpPage.form.defaultExecution')}
+                description={t('sidepanel.mcpPage.form.allowInject')}
+                enabled={form.executionEnabled}
+                onToggle={(next) => update('executionEnabled', next)}
+              />
+              <select
+                value={form.executionMode}
+                onChange={(event) => update('executionMode', event.target.value as ToolExecutionMode)}
+                className="ds-input w-full rounded-lg px-3 py-2 text-sm"
+              >
+                <option value="auto">{t('sidepanel.mcpPage.form.modeAuto')}</option>
+                <option value="manual">{t('sidepanel.mcpPage.form.modeManual')}</option>
+                <option value="disabled">{t('sidepanel.mcpPage.form.modeDisabled')}</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
@@ -762,25 +854,21 @@ function ServerRow({
   server,
   cache,
   selected,
-  busy,
+  expanded,
   onSelect,
   onToggle,
   onEdit,
   onDelete,
-  onRefresh,
-  onTest,
   t,
 }: {
   server: McpServerConfig;
   cache: McpToolCacheEntry | null;
   selected: boolean;
-  busy: BusyAction | null;
+  expanded: boolean;
   onSelect: () => void;
   onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onRefresh: () => void;
-  onTest: () => void;
   t: Translator;
 }) {
   const status = statusMeta(cache?.health.status ?? server.status, t);
@@ -788,43 +876,47 @@ function ServerRow({
 
   return (
     <div
-      className="ds-card rounded-lg p-3 cursor-pointer"
+      className="ds-card rounded-lg p-3 cursor-pointer transition-colors"
       style={{ borderColor: selected ? 'var(--ds-selected-border)' : undefined }}
       onClick={onSelect}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium truncate" style={{ color: 'var(--ds-text)' }}>{server.displayName}</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ color: status.color, background: status.bg }}>
-              {status.label}
-            </span>
-          </div>
-          <div className="text-[11px] mt-1 truncate" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {transportLabel(server.transport.kind)} · {t('sidepanel.mcpPage.row.autoTools', {
-              active: activeTools,
-              total: cache?.descriptors.length ?? 0,
-            })}
-          </div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <svg
+            className="w-3 h-3 shrink-0 transition-transform duration-200"
+            style={{ transform: expanded ? 'rotate(90deg)' : 'rotate(0)', color: 'var(--ds-text-tertiary)' }}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-sm font-medium truncate" style={{ color: 'var(--ds-text)' }}>{server.displayName}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full shrink-0" style={{ color: status.color, background: status.bg }}>
+            {status.label}
+          </span>
         </div>
-        <label className="flex items-center gap-1 text-[11px]" style={{ color: 'var(--ds-text-secondary)' }} onClick={(event) => event.stopPropagation()}>
-          <input type="checkbox" checked={server.enabled} onChange={onToggle} />
-          {t('sidepanel.mcpPage.enabled')}
-        </label>
+        <div onClick={(event) => event.stopPropagation()}>
+          <ToggleRow
+            title={t('sidepanel.mcpPage.enabled')}
+            enabled={server.enabled}
+            onToggle={onToggle}
+          />
+        </div>
       </div>
-      <div className="flex items-center gap-1.5 mt-2" onClick={(event) => event.stopPropagation()}>
-        <button onClick={onTest} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md" disabled={busy !== null}>
-          {busy === 'test' ? t('sidepanel.mcpPage.row.testing') : t('common.test')}
-        </button>
-        <button onClick={onRefresh} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md" disabled={busy !== null}>
-          {busy === 'refresh' ? t('sidepanel.toolsPage.pythonRefreshing') : t('sidepanel.mcpPage.row.refreshTools')}
-        </button>
-        <button onClick={onEdit} className="ds-action-btn ds-action-btn-edit px-2 py-1 text-[11px] rounded-md">
-          {t('common.edit')}
-        </button>
-        <button onClick={onDelete} className="ds-action-btn ds-action-btn-delete px-2 py-1 text-[11px] rounded-md ml-auto">
-          {t('common.delete')}
-        </button>
+      <div className="flex items-center justify-between gap-2 mt-1.5 pl-5">
+        <div className="text-[11px] truncate" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {transportLabel(server.transport.kind)} · {t('sidepanel.mcpPage.row.autoTools', {
+            active: activeTools,
+            total: cache?.descriptors.length ?? 0,
+          })}
+        </div>
+        <div className="flex items-center gap-1 shrink-0" onClick={(event) => event.stopPropagation()}>
+          <button onClick={onEdit} className="ds-action-btn ds-action-btn-edit px-2 py-1 text-[11px] rounded-md">
+            {t('common.edit')}
+          </button>
+          <button onClick={onDelete} className="ds-action-btn ds-action-btn-delete px-2 py-1 text-[11px] rounded-md">
+            {t('common.delete')}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -857,13 +949,13 @@ function ServerDetail({
 }) {
   const tools = cache?.descriptors ?? [];
   const serverHistory = history.filter((record) => record.call.provider?.id === server.id).slice(0, 5);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
-    <div className="ds-surface-panel rounded-lg p-3 space-y-3">
+    <div className="ds-surface-panel rounded-lg p-3 space-y-3 animate-slide-down">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <div className="text-sm font-medium truncate" style={{ color: 'var(--ds-text)' }}>{server.displayName}</div>
-          <div className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--ds-text-tertiary)' }}>{endpointLabel(server)}</div>
+          <div className="text-[11px] truncate" style={{ color: 'var(--ds-text-tertiary)' }}>{endpointLabel(server)}</div>
         </div>
         <div className="flex gap-1.5">
           {requiresOriginPermission(server) && (
@@ -872,7 +964,10 @@ function ServerDetail({
             </button>
           )}
           <button onClick={onTest} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md" disabled={busy !== null}>
-            {t('common.test')}
+            {busy === 'test' ? t('sidepanel.mcpPage.row.testing') : t('common.test')}
+          </button>
+          <button onClick={onRefresh} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md" disabled={busy !== null}>
+            {busy === 'refresh' ? t('sidepanel.toolsPage.pythonRefreshing') : t('sidepanel.mcpPage.row.refreshTools')}
           </button>
         </div>
       </div>
@@ -899,17 +994,12 @@ function ServerDetail({
       )}
 
       <div className="ds-card rounded-lg p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.mcpPage.detail.executionPolicy')}</span>
-          <label className="flex items-center gap-1.5 text-[11px]" style={{ color: 'var(--ds-text-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={server.execution.enabled}
-              onChange={(event) => onPatch({ execution: { ...server.execution, enabled: event.target.checked } })}
-            />
-            {t('sidepanel.mcpPage.form.allowInject')}
-          </label>
-        </div>
+        <ToggleRow
+          title={t('sidepanel.mcpPage.detail.executionPolicy')}
+          description={t('sidepanel.mcpPage.detail.injectionSummary', { count: enabledToolCount(server, tools) })}
+          enabled={server.execution.enabled}
+          onToggle={(next) => onPatch({ execution: { ...server.execution, enabled: next } })}
+        />
         <select
           value={server.execution.mode}
           onChange={(event) => onPatch({ execution: { ...server.execution, mode: event.target.value as ToolExecutionMode } })}
@@ -919,18 +1009,13 @@ function ServerDetail({
           <option value="manual">{t('sidepanel.mcpPage.form.modeManual')}</option>
           <option value="disabled">{t('sidepanel.mcpPage.form.modeDisabled')}</option>
         </select>
-        <div className="text-[11px]" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.mcpPage.detail.injectionSummary', { count: enabledToolCount(server, tools) })}
-        </div>
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.mcpPage.detail.discoveredTools')}</span>
-          <button onClick={onRefresh} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md" disabled={busy !== null}>
-            {busy === 'refresh' ? t('sidepanel.toolsPage.pythonRefreshing') : t('common.refresh')}
-          </button>
-        </div>
+      <CollapsibleSection
+        label={t('sidepanel.mcpPage.detail.discoveredTools')}
+        count={tools.length}
+        defaultOpen
+      >
         {tools.length === 0 ? (
           <div className="text-xs py-6 text-center" style={{ color: 'var(--ds-text-tertiary)' }}>
             {t('sidepanel.mcpPage.detail.noTools')}
@@ -942,10 +1027,15 @@ function ServerDetail({
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      <div className="space-y-2">
-        <div className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{t('sidepanel.mcpPage.detail.recentCalls')}</div>
+      <CollapsibleSection
+        label={t('sidepanel.mcpPage.detail.recentCalls')}
+        count={serverHistory.length}
+        defaultOpen={false}
+        open={historyOpen}
+        onToggle={() => setHistoryOpen((prev) => !prev)}
+      >
         {serverHistory.length === 0 ? (
           <div className="text-xs py-3 text-center" style={{ color: 'var(--ds-text-tertiary)' }}>
             {t('sidepanel.mcpPage.detail.noHistory')}
@@ -969,7 +1059,52 @@ function ServerDetail({
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
+    </div>
+  );
+}
+
+function CollapsibleSection({
+  label,
+  count,
+  defaultOpen,
+  open: openProp,
+  onToggle: onToggleProp,
+  children,
+}: {
+  label: string;
+  count: number;
+  defaultOpen?: boolean;
+  open?: boolean;
+  onToggle?: () => void;
+  children: ReactNode;
+}) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen ?? false);
+  const isControlled = openProp !== undefined;
+  const open = isControlled ? openProp : internalOpen;
+  const toggle = () => (isControlled ? onToggleProp?.() : setInternalOpen((prev) => !prev));
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex items-center justify-between w-full gap-2"
+      >
+        <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color: 'var(--ds-text)' }}>
+          <svg
+            className="w-3 h-3 transition-transform duration-200"
+            style={{ transform: open ? 'rotate(90deg)' : 'rotate(0)', color: 'var(--ds-text-tertiary)' }}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+          {label}
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ color: 'var(--ds-text-tertiary)', background: 'var(--ds-surface)' }}>
+            {count}
+          </span>
+        </span>
+      </button>
+      {open && children}
     </div>
   );
 }
@@ -993,10 +1128,11 @@ function ToolRow({
           <div className="text-xs font-medium truncate" style={{ color: 'var(--ds-text)' }}>{tool.title || tool.name}</div>
           <div className="text-[11px] mt-0.5 truncate" style={{ color: 'var(--ds-blue)' }}>{tool.invocationName}</div>
         </div>
-        <label className="flex items-center gap-1 text-[11px]" style={{ color: enabled ? 'var(--ds-success)' : 'var(--ds-text-tertiary)' }}>
-          <input type="checkbox" checked={enabled} onChange={onToggle} />
-          {enabled ? t('sidepanel.mcpPage.auto') : t('sidepanel.mcpPage.disabled')}
-        </label>
+        <ToggleRow
+          title={enabled ? t('sidepanel.mcpPage.auto') : t('sidepanel.mcpPage.disabled')}
+          enabled={enabled}
+          onToggle={onToggle}
+        />
       </div>
       <div className="text-[11px] mt-1 leading-4" style={{ color: 'var(--ds-text-secondary)' }}>
         {tool.description}
@@ -1008,15 +1144,17 @@ function ToolRow({
   );
 }
 
-function EmptyState({ label }: { label: string }) {
+function EmptyState({ label, hint, actions }: { label: string; hint?: string; actions?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center py-16 gap-3">
+    <div className="flex flex-col items-center justify-center py-14 gap-3 text-center">
       <div className="w-12 h-12 rounded-2xl flex items-center justify-center" style={{ background: 'var(--ds-surface)' }}>
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} style={{ color: 'var(--ds-text-tertiary)' }}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 10.5h3a3 3 0 110 6h-3m-3-6h-3a3 3 0 100 6h3m-1.5-3h6" />
         </svg>
       </div>
       <p className="text-sm" style={{ color: 'var(--ds-text-tertiary)' }}>{label}</p>
+      {hint && <p className="text-[11px] -mt-1 max-w-[240px]" style={{ color: 'var(--ds-text-tertiary)' }}>{hint}</p>}
+      {actions && <div className="flex flex-wrap gap-2 justify-center mt-1">{actions}</div>}
     </div>
   );
 }
@@ -1346,47 +1484,47 @@ function ShellSetupHint({
   const { message, isError } = shellSetupMessage(server, cache, t);
   const setup = shellInstallCommand();
   return (
-    <div className="ds-card rounded-lg px-3 py-2 text-[11px] leading-4" style={{ color: 'var(--ds-text-secondary)' }}>
-      <div className="font-medium mb-1" style={{ color: 'var(--ds-text)' }}>Shell Native Host</div>
-      {isError ? (
-        <div className="rounded px-2 py-1 mb-1.5" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)', border: '1px solid var(--ds-danger)' }}>
-          {message}
+    <NativeHostHint
+      title="Shell Native Host"
+      message={message}
+      isError={isError}
+      ready={cache?.health.status === 'ready'}
+      setup={setup}
+      installSteps={(<>
+        <div style={{ color: 'var(--ds-text-tertiary)' }}>
+          {setup.mode === 'local'
+            ? t('sidepanel.mcpPage.shellSetup.localIntro')
+            : t('sidepanel.mcpPage.shellSetup.publishedIntro')}
         </div>
-      ) : (
-        <div>{message}</div>
-      )}
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {setup.mode === 'local'
-          ? t('sidepanel.mcpPage.shellSetup.localIntro')
-          : t('sidepanel.mcpPage.shellSetup.publishedIntro')}
-      </div>
-      <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
-        {setup.command}
-      </div>
-      {setup.fallbackCommand && (
-        <>
-          <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.mcpPage.shellSetup.fallbackIntro')}
-          </div>
-          <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
-            {setup.fallbackCommand}
-          </div>
-        </>
-      )}
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {setup.usesExtensionId
-          ? t('sidepanel.mcpPage.shellSetup.detectedExtensionId', { browser: browserLabel(setup.browser) })
-          : t('sidepanel.mcpPage.shellSetup.firefoxFixedId')}
-      </div>
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {t('sidepanel.mcpPage.shellSetup.installNote')}
-      </div>
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {!server.enabled
-          ? t('sidepanel.mcpPage.shellSetup.enableAndTest')
-          : t('sidepanel.mcpPage.shellSetup.restartAndTest')}
-      </div>
-    </div>
+        <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
+          {setup.command}
+        </div>
+        {setup.fallbackCommand && (
+          <>
+            <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+              {t('sidepanel.mcpPage.shellSetup.fallbackIntro')}
+            </div>
+            <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
+              {setup.fallbackCommand}
+            </div>
+          </>
+        )}
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {setup.usesExtensionId
+            ? t('sidepanel.mcpPage.shellSetup.detectedExtensionId', { browser: browserLabel(setup.browser) })
+            : t('sidepanel.mcpPage.shellSetup.firefoxFixedId')}
+        </div>
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {t('sidepanel.mcpPage.shellSetup.installNote')}
+        </div>
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {!server.enabled
+            ? t('sidepanel.mcpPage.shellSetup.enableAndTest')
+            : t('sidepanel.mcpPage.shellSetup.restartAndTest')}
+        </div>
+      </>)}
+      t={t}
+    />
   );
 }
 
@@ -1402,46 +1540,104 @@ function MultimodalSetupHint({
   const { message, isError } = nativeSetupMessage(server, cache, t, 'multimodal');
   const setup = multimodalInstallCommand();
   return (
-    <div className="ds-card rounded-lg px-3 py-2 text-[11px] leading-4" style={{ color: 'var(--ds-text-secondary)' }}>
-      <div className="font-medium mb-1" style={{ color: 'var(--ds-text)' }}>Multimodal Native Host</div>
-      {isError ? (
-        <div className="rounded px-2 py-1 mb-1.5" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)', border: '1px solid var(--ds-danger)' }}>
-          {message}
+    <NativeHostHint
+      title="Multimodal Native Host"
+      message={message}
+      isError={isError}
+      ready={cache?.health.status === 'ready'}
+      setup={setup}
+      installSteps={(<>
+        <div style={{ color: 'var(--ds-text-tertiary)' }}>
+          {setup.mode === 'local'
+            ? t('sidepanel.mcpPage.multimodalSetup.localIntro')
+            : t('sidepanel.mcpPage.multimodalSetup.publishedIntro')}
         </div>
-      ) : (
-        <div>{message}</div>
-      )}
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {setup.mode === 'local'
-          ? t('sidepanel.mcpPage.multimodalSetup.localIntro')
-          : t('sidepanel.mcpPage.multimodalSetup.publishedIntro')}
-      </div>
-      <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
-        {setup.command}
-      </div>
-      {setup.fallbackCommand && (
+        <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
+          {setup.command}
+        </div>
+        {setup.fallbackCommand && (
+          <>
+            <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+              {t('sidepanel.mcpPage.multimodalSetup.fallbackIntro')}
+            </div>
+            <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
+              {setup.fallbackCommand}
+            </div>
+          </>
+        )}
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {setup.usesExtensionId
+            ? t('sidepanel.mcpPage.shellSetup.detectedExtensionId', { browser: browserLabel(setup.browser) })
+            : t('sidepanel.mcpPage.shellSetup.firefoxFixedId')}
+        </div>
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {t('sidepanel.mcpPage.multimodalSetup.settingsNote')}
+        </div>
+        <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {!server.enabled
+            ? t('sidepanel.mcpPage.multimodalSetup.enableAndTest')
+            : t('sidepanel.mcpPage.shellSetup.restartAndTest')}
+        </div>
+      </>)}
+      t={t}
+    />
+  );
+}
+
+function NativeHostHint({
+  title,
+  message,
+  isError,
+  ready,
+  installSteps,
+  t,
+}: {
+  title: string;
+  message: string;
+  isError: boolean;
+  ready: boolean;
+  setup: { mode: string };
+  installSteps: ReactNode;
+  t: Translator;
+}) {
+  // Expanded by default on error / not-installed; collapsed when already connected.
+  // The toggle is fully user-controlled — initial state is derived from `ready`
+  // via a lazy initializer so subsequent re-renders (frequent load() refreshes)
+  // never reset the user's choice.
+  const [open, setOpen] = useState(() => !ready);
+  return (
+    <div className="ds-card rounded-lg px-3 py-2 text-[11px] leading-4" style={{ color: 'var(--ds-text-secondary)' }}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className="flex items-center gap-1.5 w-full"
+      >
+        <svg
+          className="w-3 h-3 transition-transform duration-200"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0)', color: 'var(--ds-text-tertiary)' }}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <span className="font-medium" style={{ color: 'var(--ds-text)' }}>{title}</span>
+      </button>
+      {open ? (
         <>
-          <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-            {t('sidepanel.mcpPage.multimodalSetup.fallbackIntro')}
-          </div>
-          <div className="mt-1 font-mono break-all select-all rounded px-2 py-1" style={{ color: 'var(--ds-text)', background: 'var(--ds-surface)' }}>
-            {setup.fallbackCommand}
-          </div>
+          {isError ? (
+            <div className="rounded px-2 py-1 mt-1.5 mb-1.5" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)', border: '1px solid var(--ds-danger)' }}>
+              {message}
+            </div>
+          ) : (
+            <div className="mt-1">{message}</div>
+          )}
+          <div className="mt-1.5 space-y-0.5">{installSteps}</div>
         </>
+      ) : (
+        <div className="mt-1 text-[10px]" style={{ color: 'var(--ds-text-tertiary)' }}>
+          {t('sidepanel.mcpPage.detail.hintExpand')}
+        </div>
       )}
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {setup.usesExtensionId
-          ? t('sidepanel.mcpPage.shellSetup.detectedExtensionId', { browser: browserLabel(setup.browser) })
-          : t('sidepanel.mcpPage.shellSetup.firefoxFixedId')}
-      </div>
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {t('sidepanel.mcpPage.multimodalSetup.settingsNote')}
-      </div>
-      <div className="mt-1" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {!server.enabled
-          ? t('sidepanel.mcpPage.multimodalSetup.enableAndTest')
-          : t('sidepanel.mcpPage.shellSetup.restartAndTest')}
-      </div>
     </div>
   );
 }

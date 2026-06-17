@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import type { LocaleMessageKey } from '../../core/i18n';
 import { getChatEnabled } from '../../core/chat/store';
 import WhatsNewPanel from './components/WhatsNewPanel';
+import { SkeletonList } from './components/settings/primitives';
 import { useI18n } from './i18n';
 import { setPendingText } from './pending-text';
 
@@ -102,7 +103,7 @@ export default function App() {
 
       <main className="ds-app-main">
         <WhatsNewPanel />
-        <Suspense fallback={<div className="p-4 text-sm" style={{ color: 'var(--ds-text-tertiary)' }}>{t('common.loading')}</div>}>
+        <Suspense fallback={<div className="p-4"><SkeletonList rows={3} /></div>}>
           {tab === 'chat' && <ChatPage />}
           {tab === 'library' && (
             <LibraryPage

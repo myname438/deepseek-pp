@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Skill } from '../../../core/types';
+import { ToggleRow } from './settings/primitives';
 import { useI18n } from '../i18n';
 
 interface Props {
@@ -76,16 +77,11 @@ export default function SkillForm({ initialSkill, onSave, onCancel }: Props) {
         />
       </div>
 
-      <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: 'var(--ds-text-secondary)' }}>
-        <input
-          type="checkbox"
-          checked={memoryEnabled}
-          onChange={(e) => setMemoryEnabled(e.target.checked)}
-          className="w-4 h-4 rounded"
-          style={{ accentColor: 'var(--ds-blue)' }}
-        />
-        {t('sidepanel.skill.form.memoryInjectionLabel')}
-      </label>
+      <ToggleRow
+        title={t('sidepanel.skill.form.memoryInjectionLabel')}
+        enabled={memoryEnabled}
+        onToggle={(next) => setMemoryEnabled(next)}
+      />
 
       <div className="flex gap-2 justify-end pt-1">
         <button

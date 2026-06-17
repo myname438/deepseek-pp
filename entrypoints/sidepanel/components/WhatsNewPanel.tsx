@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { dismissWhatsNew, getWhatsNewState, WHATS_NEW_ITEMS, type WhatsNewState } from '../../../core/whats-new';
 import { useI18n } from '../i18n';
 
 export default function WhatsNewPanel() {
   const { t } = useI18n();
   const [state, setState] = useState<WhatsNewState | null>(null);
+  const dismissRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     getWhatsNewState()
@@ -14,6 +15,23 @@ export default function WhatsNewPanel() {
         setState(null);
       });
   }, []);
+
+  // Auto-focus the dismiss button + allow Escape to close, matching the
+  // shared ConfirmDialog behavior so the panel is keyboard-operable.
+  useEffect(() => {
+    if (!state?.visible) return;
+    dismissRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setState((current) => current ? { ...current, visible: false, pendingUpdate: false } : current);
+        void dismissWhatsNew()
+          .then(() => chrome.runtime.sendMessage({ type: 'WHATS_NEW_DISMISSED' }))
+          .catch((error) => console.error('Failed to dismiss whats-new panel', error));
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [state?.visible]);
 
   if (!state?.visible) return null;
 
@@ -56,6 +74,7 @@ export default function WhatsNewPanel() {
           ))}
         </ul>
         <button
+          ref={dismissRef}
           type="button"
           className="ds-whats-new-dismiss"
           onClick={handleDismiss}

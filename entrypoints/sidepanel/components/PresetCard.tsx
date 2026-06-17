@@ -42,14 +42,16 @@ export default function PresetCard({ preset, isActive, onActivate, onDeactivate,
           </button>
           <button
             onClick={onEdit}
-            className="text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-150"
+            aria-label={t('common.edit')}
+            className="text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-150"
             style={{ color: 'var(--ds-text-secondary)' }}
           >
             {t('common.edit')}
           </button>
           <button
             onClick={onDelete}
-            className="ds-text-btn-delete text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 transition-all duration-150"
+            aria-label={t('common.delete')}
+            className="ds-text-btn-delete text-[11px] px-2 py-1 rounded-md opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-150"
           >
             {t('common.delete')}
           </button>

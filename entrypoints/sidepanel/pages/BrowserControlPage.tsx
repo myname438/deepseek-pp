@@ -5,6 +5,14 @@ import type {
   BrowserControlTarget,
 } from '../../../core/browser-control';
 import PageIntro from '../components/PageIntro';
+import {
+  EmptyState,
+  Meta,
+  SettingsSection,
+  Slider,
+  ToggleRow,
+  useBanner,
+} from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 
 type BusyState = 'idle' | 'loading' | 'saving' | 'targeting' | 'detaching';
@@ -22,7 +30,7 @@ export default function BrowserControlPage() {
   const [settings, setSettings] = useState<BrowserControlSettings>(DEFAULT_SETTINGS);
   const [state, setState] = useState<BrowserControlState | null>(null);
   const [busy, setBusy] = useState<BusyState>('loading');
-  const [message, setMessage] = useState('');
+  const banner = useBanner();
 
   const targets = useMemo(
     () => state?.targets ?? [],
@@ -57,7 +65,7 @@ export default function BrowserControlPage() {
 
   const savePatch = async (patch: Partial<BrowserControlSettings>) => {
     setBusy('saving');
-    setMessage('');
+    banner.clear();
     try {
       const next = await chrome.runtime.sendMessage({
         type: 'SAVE_BROWSER_CONTROL_SETTINGS',
@@ -66,7 +74,7 @@ export default function BrowserControlPage() {
       setSettings(next ?? settings);
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      banner.show('error', error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('idle');
     }
@@ -74,19 +82,19 @@ export default function BrowserControlPage() {
 
   const setEnabled = async (enabled: boolean) => {
     setBusy('saving');
-    setMessage('');
+    banner.clear();
     try {
       const next = await chrome.runtime.sendMessage({
         type: 'SET_BROWSER_CONTROL_ENABLED',
         payload: { enabled },
       }) as BrowserControlSettings;
       setSettings(next ?? { ...settings, enabled });
-      setMessage(enabled
+      banner.show('success', enabled
         ? t('sidepanel.browserControlPage.messages.enabled')
         : t('sidepanel.browserControlPage.messages.disabled'));
       await load();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      banner.show('error', error instanceof Error ? error.message : String(error));
     } finally {
       setBusy('idle');
     }
@@ -95,16 +103,16 @@ export default function BrowserControlPage() {
   const selectTarget = async (target: BrowserControlTarget) => {
     if (!target.controllable) return;
     setBusy('targeting');
-    setMessage('');
+    banner.clear();
     try {
       const result = await chrome.runtime.sendMessage({
         type: 'SET_BROWSER_CONTROL_TARGET',
         payload: { tabId: target.id },
       });
       if (result?.ok === false) {
-        setMessage(String(result.error ?? t('sidepanel.browserControlPage.messages.targetFailed')));
+        banner.show('error', String(result.error ?? t('sidepanel.browserControlPage.messages.targetFailed')));
       } else {
-        setMessage(t('sidepanel.browserControlPage.messages.targetSelected', { id: target.id }));
+        banner.show('success', t('sidepanel.browserControlPage.messages.targetSelected', { id: target.id }));
       }
       await load();
     } finally {
@@ -114,10 +122,10 @@ export default function BrowserControlPage() {
 
   const detach = async () => {
     setBusy('detaching');
-    setMessage('');
+    banner.clear();
     try {
       await chrome.runtime.sendMessage({ type: 'DETACH_BROWSER_CONTROL' });
-      setMessage(t('sidepanel.browserControlPage.messages.detached'));
+      banner.show('success', t('sidepanel.browserControlPage.messages.detached'));
       await load();
     } finally {
       setBusy('idle');
@@ -135,41 +143,21 @@ export default function BrowserControlPage() {
       />
 
       <div className="ds-surface-panel rounded-xl p-4 space-y-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>
-              {t('sidepanel.browserControlPage.enableTitle')}
-            </div>
-            <div className="text-[11px] mt-1 leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
-              {supported
-                ? t('sidepanel.browserControlPage.enableDescription')
-                : t('sidepanel.browserControlPage.unsupported')}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setEnabled(!settings.enabled)}
-            disabled={!supported || busy !== 'idle'}
-            className="relative shrink-0 w-10 h-[22px] rounded-full transition-colors duration-200 disabled:opacity-50"
-            style={{
-              background: settings.enabled && supported ? 'var(--ds-blue)' : 'var(--ds-border)',
-            }}
-            aria-label={t('sidepanel.browserControlPage.enableTitle')}
-          >
-            <span
-              className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
-              style={{
-                transform: settings.enabled && supported ? 'translateX(18px)' : 'translateX(0)',
-              }}
-            />
-          </button>
-        </div>
-
-        <StatusGrid
-          attached={state?.attached === true}
-          enabled={settings.enabled}
-          target={activeTarget}
+        <ToggleRow
+          title={t('sidepanel.browserControlPage.enableTitle')}
+          description={supported
+            ? t('sidepanel.browserControlPage.enableDescription')
+            : t('sidepanel.browserControlPage.unsupported')}
+          enabled={settings.enabled && supported}
+          disabled={!supported || busy !== 'idle'}
+          onToggle={(next) => setEnabled(next)}
         />
+
+        <div className="grid grid-cols-3 gap-2">
+          <Meta label={t('sidepanel.browserControlPage.status.enabled')} value={settings.enabled ? t('common.enabled') : t('common.disabled')} />
+          <Meta label={t('sidepanel.browserControlPage.status.attached')} value={state?.attached ? t('common.enabled') : t('common.disabled')} />
+          <Meta label={t('sidepanel.browserControlPage.status.target')} value={activeTarget ? String(activeTarget.id) : t('common.none')} />
+        </div>
 
         <div className="flex flex-wrap gap-2">
           <button
@@ -190,20 +178,10 @@ export default function BrowserControlPage() {
           </button>
         </div>
 
-        {message && (
-          <div className="text-[11px] px-2 py-1.5 rounded-lg" style={{
-            color: 'var(--ds-text-secondary)',
-            background: 'var(--ds-surface)',
-          }}>
-            {message}
-          </div>
-        )}
+        {banner.node}
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.browserControlPage.targetsTitle')}
-        </h2>
+      <SettingsSection title={t('sidepanel.browserControlPage.targetsTitle')}>
         <div className="space-y-2">
           {targets.map((target) => (
             <TargetRow
@@ -215,28 +193,20 @@ export default function BrowserControlPage() {
             />
           ))}
           {targets.length === 0 && (
-            <div className="text-[11px] px-3 py-2 rounded-lg" style={{
-              color: 'var(--ds-text-tertiary)',
-              background: 'var(--ds-surface)',
-            }}>
-              {t('sidepanel.browserControlPage.noTargets')}
-            </div>
+            <EmptyState title={t('sidepanel.browserControlPage.noTargets')} />
           )}
         </div>
-      </section>
+      </SettingsSection>
 
-      <section className="ds-surface-panel rounded-xl p-4 space-y-3">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.browserControlPage.snapshotTitle')}
-        </h2>
+      <SettingsSection title={t('sidepanel.browserControlPage.snapshotTitle')}>
         <ToggleRow
-          label={t('sidepanel.browserControlPage.includeSnapshot')}
+          title={t('sidepanel.browserControlPage.includeSnapshot')}
           description={t('sidepanel.browserControlPage.includeSnapshotDescription')}
-          checked={settings.includeSnapshotAfterActions}
+          enabled={settings.includeSnapshotAfterActions}
           disabled={busy !== 'idle'}
-          onChange={(checked) => savePatch({ includeSnapshotAfterActions: checked })}
+          onToggle={(next) => savePatch({ includeSnapshotAfterActions: next })}
         />
-        <NumberField
+        <Slider
           label={t('sidepanel.browserControlPage.maxNodes')}
           value={settings.maxSnapshotNodes}
           min={50}
@@ -245,7 +215,7 @@ export default function BrowserControlPage() {
           disabled={busy !== 'idle'}
           onChange={(value) => savePatch({ maxSnapshotNodes: value })}
         />
-        <NumberField
+        <Slider
           label={t('sidepanel.browserControlPage.maxBytes')}
           value={settings.maxSnapshotTextBytes}
           min={4000}
@@ -254,34 +224,7 @@ export default function BrowserControlPage() {
           disabled={busy !== 'idle'}
           onChange={(value) => savePatch({ maxSnapshotTextBytes: value })}
         />
-      </section>
-    </div>
-  );
-}
-
-function StatusGrid({
-  attached,
-  enabled,
-  target,
-}: {
-  attached: boolean;
-  enabled: boolean;
-  target: BrowserControlTarget | null;
-}) {
-  const { t } = useI18n();
-  const items = [
-    { label: t('sidepanel.browserControlPage.status.enabled'), value: enabled ? t('common.enabled') : t('common.disabled') },
-    { label: t('sidepanel.browserControlPage.status.attached'), value: attached ? t('common.enabled') : t('common.disabled') },
-    { label: t('sidepanel.browserControlPage.status.target'), value: target ? String(target.id) : t('common.none') },
-  ];
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      {items.map((item) => (
-        <div key={item.label} className="rounded-lg px-3 py-2" style={{ background: 'var(--ds-surface)' }}>
-          <div className="text-[10px]" style={{ color: 'var(--ds-text-tertiary)' }}>{item.label}</div>
-          <div className="text-xs font-medium truncate" style={{ color: 'var(--ds-text)' }}>{item.value}</div>
-        </div>
-      ))}
+      </SettingsSection>
     </div>
   );
 }
@@ -335,83 +278,5 @@ function TargetRow({
         </span>
       </div>
     </button>
-  );
-}
-
-function ToggleRow({
-  label,
-  description,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <div className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{label}</div>
-        <div className="text-[11px] mt-0.5 leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>{description}</div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        disabled={disabled}
-        className="relative shrink-0 w-10 h-[22px] rounded-full transition-colors duration-200 disabled:opacity-50"
-        style={{ background: checked ? 'var(--ds-blue)' : 'var(--ds-border)' }}
-        aria-label={label}
-      >
-        <span
-          className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
-          style={{ transform: checked ? 'translateX(18px)' : 'translateX(0)' }}
-        />
-      </button>
-    </div>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="block space-y-1">
-      <span className="text-xs font-medium" style={{ color: 'var(--ds-text)' }}>{label}</span>
-      <input
-        type="number"
-        value={value}
-        min={min}
-        max={max}
-        step={step}
-        disabled={disabled}
-        onChange={(event) => {
-          const next = Number(event.target.value);
-          if (Number.isFinite(next)) onChange(next);
-        }}
-        className="w-full px-3 py-2 text-xs rounded-lg border outline-none transition-colors focus:border-[var(--ds-blue)] disabled:opacity-50"
-        style={{
-          background: 'var(--ds-bg)',
-          borderColor: 'var(--ds-border)',
-          color: 'var(--ds-text)',
-        }}
-      />
-    </label>
   );
 }

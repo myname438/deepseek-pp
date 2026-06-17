@@ -6,6 +6,7 @@ import LocalSkillImportPanel from '../components/LocalSkillImportPanel';
 import PageIntro from '../components/PageIntro';
 import SkillCard from '../components/SkillCard';
 import SkillForm from '../components/SkillForm';
+import { SkeletonList, useConfirm } from '../components/settings/primitives';
 import { requestGitHubApiPermission } from '../github-permission';
 import { useI18n } from '../i18n';
 
@@ -62,6 +63,8 @@ export default function SkillPage() {
   const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
   const [sourceActions, setSourceActions] = useState<Record<string, SourceActionState>>({});
   const [expandedThirdPartyGroups, setExpandedThirdPartyGroups] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+  const { confirm, node: confirmNode } = useConfirm();
 
   const load = async () => {
     const [list, sources]: [Skill[], SkillImportSource[]] = await Promise.all([
@@ -70,6 +73,7 @@ export default function SkillPage() {
     ]);
     setSkills(list ?? []);
     setSkillSources(sources ?? []);
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, [locale]);
@@ -204,10 +208,17 @@ export default function SkillPage() {
   };
 
   const handleDeleteSource = async (source: GitHubSkillSource) => {
-    if (!confirm(t('sidepanel.skillPage.deleteSourceConfirm', {
+    const message = t('sidepanel.skillPage.deleteSourceConfirm', {
       repository: source.repository,
       count: source.importedSkillNames.length,
-    }))) return;
+    });
+    const ok = await confirm({
+      title: message,
+      message,
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({
       type: 'DELETE_GITHUB_SKILL_SOURCE',
       payload: { sourceId: source.id },
@@ -270,6 +281,8 @@ export default function SkillPage() {
         )}
       />
 
+      {confirmNode}
+
       {importMode === 'github' && (
         <div className="animate-slide-down">
           <GitHubSkillImportPanel onImported={load} onCancel={() => setImportMode(null)} />
@@ -288,6 +301,10 @@ export default function SkillPage() {
         </div>
       )}
 
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : (
+        <>
       {githubSources.length > 0 && (
         <GitHubSourceSection
           sources={githubSources}
@@ -327,6 +344,8 @@ export default function SkillPage() {
           </code>
         </p>
       </div>
+        </>
+      )}
     </div>
   );
 }

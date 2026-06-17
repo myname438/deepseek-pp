@@ -3,19 +3,23 @@ import type { Memory, MemoryType, NewMemory } from '../../../core/types';
 import MemoryCard from '../components/MemoryCard';
 import MemoryForm from '../components/MemoryForm';
 import PageIntro from '../components/PageIntro';
+import { SegmentedControl, SkeletonList, useConfirm } from '../components/settings/primitives';
 import { MEMORY_TYPE_CONFIG } from '../constants';
 import { useI18n } from '../i18n';
 
 export default function MemoryPage() {
   const { t } = useI18n();
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<MemoryType | 'all'>('all');
   const [showForm, setShowForm] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
+  const { confirm, node: confirmNode } = useConfirm();
 
   const load = async () => {
     const list: Memory[] = await chrome.runtime.sendMessage({ type: 'GET_MEMORIES' });
     setMemories((list ?? []).filter((memory) => memory.scope !== 'project'));
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -51,6 +55,13 @@ export default function MemoryPage() {
   ];
 
   const handleDelete = async (id: number) => {
+    const ok = await confirm({
+      title: t('sidepanel.memoryPage.deleteConfirm'),
+      message: t('sidepanel.memoryPage.deleteConfirm'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'DELETE_MEMORY', payload: { id } });
     load();
   };
@@ -90,24 +101,14 @@ export default function MemoryPage() {
         meta={t('sidepanel.memoryPage.count', { count: memories.length })}
       />
 
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1.5 flex-wrap">
-          {filterTypes.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setFilter(t.key)}
-              className="px-2.5 py-1 text-xs rounded-full transition-all duration-150"
-              style={{
-                background: filter === t.key ? 'var(--ds-blue-light)' : 'var(--ds-surface)',
-                color: filter === t.key ? 'var(--ds-blue)' : 'var(--ds-text-secondary)',
-                fontWeight: filter === t.key ? 500 : 400,
-                border: `1px solid ${filter === t.key ? 'var(--ds-selected-border)' : 'var(--ds-border)'}`,
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <SegmentedControl
+          options={filterTypes}
+          value={filter}
+          onChange={(key) => setFilter(key)}
+          ariaLabel={t('sidepanel.memoryPage.title')}
+          size="sm"
+        />
         <button
           onClick={() => { setEditingMemory(null); setShowForm(!showForm); }}
           className="ds-btn-primary px-3 py-1.5 text-xs font-medium text-white rounded-lg transition-all duration-150 flex items-center gap-1"
@@ -119,6 +120,8 @@ export default function MemoryPage() {
         </button>
       </div>
 
+      {confirmNode}
+
       {showForm && (
         <div className="animate-slide-down">
           <MemoryForm
@@ -129,7 +132,9 @@ export default function MemoryPage() {
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : filtered.length === 0 ? (
         <div className="ds-empty-state">
           <div className="ds-empty-state-icon">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>

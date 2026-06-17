@@ -41,18 +41,18 @@ export default function MemoryCard({ memory, onDelete, onEdit, onTogglePin }: Pr
             </span>
           )}
         </div>
-        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button onClick={onTogglePin} className="ds-action-btn ds-action-btn-pin p-1.5 rounded-md" title={pinTitle}>
+        <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity shrink-0">
+          <button onClick={onTogglePin} className="ds-action-btn ds-action-btn-pin p-1.5 rounded-md" title={pinTitle} aria-label={pinTitle}>
             <svg className="w-3.5 h-3.5" fill={memory.pinned ? 'currentColor' : 'none'} viewBox="0 0 20 20" stroke="currentColor" strokeWidth={memory.pinned ? 0 : 1.5}>
               <path d={SVG_PATHS.star} />
             </svg>
           </button>
-          <button onClick={onEdit} className="ds-action-btn ds-action-btn-edit p-1.5 rounded-md" title={t('common.edit')}>
+          <button onClick={onEdit} className="ds-action-btn ds-action-btn-edit p-1.5 rounded-md" title={t('common.edit')} aria-label={t('common.edit')}>
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d={SVG_PATHS.edit} />
             </svg>
           </button>
-          <button onClick={onDelete} className="ds-action-btn ds-action-btn-delete p-1.5 rounded-md" title={t('common.delete')}>
+          <button onClick={onDelete} className="ds-action-btn ds-action-btn-delete p-1.5 rounded-md" title={t('common.delete')} aria-label={t('common.delete')}>
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d={SVG_PATHS.trash} />
             </svg>

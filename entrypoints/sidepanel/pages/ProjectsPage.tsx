@@ -11,6 +11,7 @@ import { PROJECT_CONTEXT_SCHEMA_VERSION } from '../../../core/project';
 import MemoryCard from '../components/MemoryCard';
 import MemoryForm from '../components/MemoryForm';
 import PageIntro from '../components/PageIntro';
+import { SkeletonList, StatusBadge, useBanner, useConfirm } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 import { getRuntimeErrorMessage, unwrapRuntimeResponse } from '../runtime-response';
 
@@ -25,6 +26,7 @@ export default function ProjectsPage() {
   const { t } = useI18n();
   const [state, setState] = useState<ProjectContextState>(EMPTY_PROJECT_STATE);
   const [memories, setMemories] = useState<Memory[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -35,7 +37,8 @@ export default function ProjectsPage() {
   const [showMemoryForm, setShowMemoryForm] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [currentConversation, setCurrentConversation] = useState<CurrentDeepSeekConversation | null>(null);
-  const [statusMessage, setStatusMessage] = useState('');
+  const banner = useBanner();
+  const { confirm, node: confirmNode } = useConfirm();
 
   useEffect(() => {
     void loadAll().catch(showProjectError);
@@ -103,6 +106,7 @@ export default function ProjectsPage() {
     if (!isProjectContextState(next)) throw new Error(t('sidepanel.projectsPage.backendUnavailable'));
     applyState(next);
     setMemories(Array.isArray(memoryList) ? memoryList : []);
+    setLoading(false);
   }
 
   function applyState(next: ProjectContextState) {
@@ -111,7 +115,6 @@ export default function ProjectsPage() {
       if (current && next.projects.some((project) => project.id === current)) return current;
       return next.projects[0]?.id ?? null;
     });
-    setStatusMessage('');
   }
 
   async function refreshCurrentConversation() {
@@ -130,7 +133,7 @@ export default function ProjectsPage() {
   async function createProject() {
     if (!name.trim()) return;
     try {
-      setStatusMessage('');
+      banner.clear();
       const response = await chrome.runtime.sendMessage({
         type: 'CREATE_PROJECT_CONTEXT',
         payload: { name, instructions },
@@ -142,6 +145,7 @@ export default function ProjectsPage() {
       setName('');
       setInstructions('');
       setSelectedProjectId(project.id);
+      banner.show('success', t('sidepanel.projectsPage.projectCreated', { name: project.name }));
       await loadAll();
     } catch (error) {
       showProjectError(error);
@@ -151,7 +155,7 @@ export default function ProjectsPage() {
   async function saveProject() {
     if (!editing || !editName.trim()) return;
     try {
-      setStatusMessage('');
+      banner.clear();
       await runProjectMutation({
         type: 'UPDATE_PROJECT_CONTEXT',
         payload: {
@@ -163,6 +167,7 @@ export default function ProjectsPage() {
           },
         },
       });
+      banner.show('success', t('common.saveChanges'));
       await loadAll();
     } catch (error) {
       showProjectError(error);
@@ -170,7 +175,13 @@ export default function ProjectsPage() {
   }
 
   async function deleteProject(project: ProjectContext) {
-    if (!confirm(t('sidepanel.projectsPage.deleteConfirm', { name: project.name }))) return;
+    const ok = await confirm({
+      title: t('sidepanel.projectsPage.deleteConfirm', { name: project.name }),
+      message: t('sidepanel.projectsPage.deleteConfirm', { name: project.name }),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     try {
       await runProjectMutation({
         type: 'DELETE_PROJECT_CONTEXT',
@@ -276,7 +287,7 @@ export default function ProjectsPage() {
   }
 
   function showProjectError(error: unknown) {
-    setStatusMessage(t('sidepanel.projectsPage.operationFailed', { error: getRuntimeErrorMessage(error) }));
+    banner.show('error', t('sidepanel.projectsPage.operationFailed', { error: getRuntimeErrorMessage(error) }));
   }
 
   async function runProjectMutation(message: unknown): Promise<void> {
@@ -325,13 +336,12 @@ export default function ProjectsPage() {
         </button>
       </section>
 
-      {statusMessage && (
-        <div className="text-[11px] rounded-lg px-3 py-2" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)' }}>
-          {statusMessage}
-        </div>
-      )}
+      {banner.node}
+      {confirmNode}
 
-      {state.projects.length === 0 ? (
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : state.projects.length === 0 ? (
         <div className="ds-empty-state">
           <div className="ds-empty-state-icon">
             <FolderIcon />
@@ -367,9 +377,11 @@ export default function ProjectsPage() {
                     </span>
                   </span>
                   {pending && (
-                    <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ color: 'var(--ds-blue)', background: 'var(--ds-bg)' }}>
-                      {t('sidepanel.projectsPage.pendingBadge')}
-                    </span>
+                    <StatusBadge
+                      configured
+                      configuredLabel={t('sidepanel.projectsPage.pendingBadge')}
+                      notConfiguredLabel={t('sidepanel.projectsPage.pendingBadge')}
+                    />
                   )}
                 </button>
               );
@@ -388,7 +400,7 @@ export default function ProjectsPage() {
                     })}
                   </div>
                 </div>
-                <button type="button" onClick={() => deleteProject(selectedProject)} className="ds-btn-secondary px-2 py-1 text-[11px] rounded-md">
+                <button type="button" onClick={() => deleteProject(selectedProject)} className="ds-btn-danger px-2 py-1 text-[11px] rounded-md">
                   {t('sidepanel.projectsPage.deleteProject')}
                 </button>
               </div>
@@ -415,7 +427,7 @@ export default function ProjectsPage() {
                   className="w-full px-3 py-2 text-xs rounded-lg border outline-none min-h-[96px]"
                   style={inputStyle}
                 />
-                <button type="button" onClick={saveProject} disabled={!editName.trim()} className="ds-btn-secondary px-3 py-2 text-xs rounded-lg disabled:opacity-40">
+                <button type="button" onClick={saveProject} disabled={!editName.trim()} className="ds-btn-primary px-3 py-2 text-xs rounded-lg disabled:opacity-40">
                   {t('common.saveChanges')}
                 </button>
               </div>

@@ -3,15 +3,18 @@ import type { SystemPromptPreset } from '../../../core/types';
 import PageIntro from '../components/PageIntro';
 import PresetCard from '../components/PresetCard';
 import PresetForm from '../components/PresetForm';
+import { SkeletonList, useConfirm } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 
 export default function PresetPage() {
   const { t } = useI18n();
   const [presets, setPresets] = useState<SystemPromptPreset[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<SystemPromptPreset | undefined>();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { confirm, node: confirmNode } = useConfirm();
 
   const load = async () => {
     const [list, active] = await Promise.all([
@@ -20,6 +23,7 @@ export default function PresetPage() {
     ]);
     setPresets(list ?? []);
     setActiveId((active as SystemPromptPreset | null)?.id ?? null);
+    setLoading(false);
   };
 
   useEffect(() => { load(); }, []);
@@ -57,6 +61,13 @@ export default function PresetPage() {
   };
 
   const handleDelete = async (id: string) => {
+    const ok = await confirm({
+      title: t('sidepanel.presetPage.deleteConfirm'),
+      message: t('sidepanel.presetPage.deleteConfirm'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'DELETE_PRESET', payload: { id } });
     load();
   };
@@ -127,21 +138,11 @@ export default function PresetPage() {
         </div>
       )}
 
-      <div className="space-y-2">
-        {presets.map((p) => (
-          <PresetCard
-            key={p.id}
-            preset={p}
-            isActive={p.id === activeId}
-            onActivate={() => handleActivate(p.id)}
-            onDeactivate={handleDeactivate}
-            onEdit={() => handleEdit(p)}
-            onDelete={() => handleDelete(p.id)}
-          />
-        ))}
-      </div>
+      {confirmNode}
 
-      {presets.length === 0 && !showForm && (
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : presets.length === 0 ? (
         <div className="ds-empty-state">
           <div className="ds-empty-state-icon">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -151,14 +152,28 @@ export default function PresetPage() {
           <div className="ds-empty-state-title">{t('sidepanel.presetPage.empty')}</div>
           <div className="ds-empty-state-description">{t('sidepanel.presetPage.emptyHelp')}</div>
         </div>
-      )}
+      ) : (
+        <>
+          <div className="space-y-2">
+            {presets.map((p) => (
+              <PresetCard
+                key={p.id}
+                preset={p}
+                isActive={p.id === activeId}
+                onActivate={() => handleActivate(p.id)}
+                onDeactivate={handleDeactivate}
+                onEdit={() => handleEdit(p)}
+                onDelete={() => handleDelete(p.id)}
+              />
+            ))}
+          </div>
 
-      {presets.length > 0 && (
-        <div className="ds-info-panel rounded-xl p-3.5">
-          <p className="text-xs leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
-            {t('sidepanel.presetPage.activeHelp')}
-          </p>
-        </div>
+          <div className="ds-info-panel rounded-xl p-3.5">
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--ds-text-secondary)' }}>
+              {t('sidepanel.presetPage.activeHelp')}
+            </p>
+          </div>
+        </>
       )}
     </div>
   );

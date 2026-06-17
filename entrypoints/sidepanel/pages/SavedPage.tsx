@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { SavedItem, SavedItemInput, SavedItemKind } from '../../../core/saved-items';
 import { createSavedItemsJsonArtifact, createSavedItemsMarkdownArtifact, type SecondaryExportArtifact } from '../../../core/export/secondary-artifacts';
 import PageIntro from '../components/PageIntro';
+import { SegmentedControl, SkeletonList, useBanner, useConfirm } from '../components/settings/primitives';
 import { SVG_PATHS } from '../constants';
 import { useI18n } from '../i18n';
 import { getRuntimeErrorMessage, unwrapRuntimeResponse } from '../runtime-response';
@@ -13,16 +14,19 @@ interface SavedPageProps {
 export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
   const { t } = useI18n();
   const [items, setItems] = useState<SavedItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [kind, setKind] = useState<SavedItemKind>('snippet');
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [tags, setTags] = useState('');
-  const [statusMessage, setStatusMessage] = useState('');
+  const banner = useBanner();
+  const { confirm, node: confirmNode } = useConfirm();
 
   const load = async () => {
     const result = await chrome.runtime.sendMessage({ type: 'GET_SAVED_ITEMS' });
     setItems(Array.isArray(result) ? result : []);
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -56,7 +60,7 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
       tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
     };
     try {
-      setStatusMessage('');
+      banner.clear();
       const saved = unwrapRuntimeResponse<SavedItem>(
         await chrome.runtime.sendMessage({ type: 'SAVE_SAVED_ITEM', payload }),
         t('sidepanel.savedPage.backendUnavailable'),
@@ -67,13 +71,21 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
       setTitle('');
       setContent('');
       setTags('');
+      banner.show('success', t('sidepanel.savedPage.saved'));
       await load();
     } catch (error) {
-      setStatusMessage(t('sidepanel.savedPage.operationFailed', { error: getRuntimeErrorMessage(error) }));
+      banner.show('error', t('sidepanel.savedPage.operationFailed', { error: getRuntimeErrorMessage(error) }));
     }
   };
 
   const remove = async (id: string) => {
+    const ok = await confirm({
+      title: t('sidepanel.savedPage.deleteConfirm'),
+      message: t('sidepanel.savedPage.deleteConfirm'),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'DELETE_SAVED_ITEM', payload: { id } });
     await load();
   };
@@ -121,23 +133,16 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
       />
 
       <div className="ds-surface-panel rounded-xl p-4 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          {(['snippet', 'bookmark'] as const).map((value) => (
-            <button
-              type="button"
-              key={value}
-              onClick={() => setKind(value)}
-              className="py-2 text-[11px] font-medium rounded-lg border transition-all duration-150"
-              style={{
-                background: kind === value ? 'var(--ds-blue-light)' : 'var(--ds-bg)',
-                color: kind === value ? 'var(--ds-blue)' : 'var(--ds-text-secondary)',
-                borderColor: kind === value ? 'var(--ds-selected-border)' : 'var(--ds-border)',
-              }}
-            >
-              {value === 'snippet' ? t('sidepanel.savedPage.snippet') : t('sidepanel.savedPage.bookmark')}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          options={[
+            { key: 'snippet', label: t('sidepanel.savedPage.snippet') },
+            { key: 'bookmark', label: t('sidepanel.savedPage.bookmark') },
+          ]}
+          value={kind}
+          onChange={(key) => setKind(key)}
+          ariaLabel={t('sidepanel.savedPage.title')}
+          size="sm"
+        />
         <input
           value={title}
           onChange={(event) => setTitle(event.target.value)}
@@ -168,12 +173,10 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
         >
           {t('sidepanel.savedPage.save')}
         </button>
-        {statusMessage && (
-          <div className="text-[11px] rounded-lg px-2 py-1.5" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)' }}>
-            {statusMessage}
-          </div>
-        )}
+        {banner.node}
       </div>
+
+      {confirmNode}
 
       <input
         value={query}
@@ -184,7 +187,9 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
       />
 
       <div className="space-y-2">
-        {filtered.length === 0 && (
+        {loading ? (
+          <SkeletonList rows={3} />
+        ) : filtered.length === 0 && (
           <div className="ds-empty-state">
             <div className="ds-empty-state-icon">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -212,6 +217,7 @@ export default function SavedPage({ onInsertPrompt }: SavedPageProps) {
                 className="shrink-0 p-1.5 rounded-md transition-colors"
                 style={{ color: 'var(--ds-danger)' }}
                 title={t('common.delete')}
+                aria-label={t('common.delete')}
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d={SVG_PATHS.trash} />

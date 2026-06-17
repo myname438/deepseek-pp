@@ -74,6 +74,18 @@ describe('sidepanel navigation', () => {
   it('keeps the voice settings surface reachable from Settings', async () => {
     await renderElement(React.createElement(SettingsPage));
 
+    // Settings is split into sub-tabs; voice lives under the Voice tab.
+    const settingsNav = container.querySelector('nav[aria-label="设置子导航"]');
+    expect(settingsNav).toBeTruthy();
+    const voiceTab = Array.from(settingsNav!.querySelectorAll('button')).find(
+      (button) => (button.textContent ?? '') === '语音',
+    );
+    expect(voiceTab).toBeTruthy();
+
+    await act(async () => {
+      voiceTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
     expect(container.textContent).toContain('语音');
     expect(container.textContent).toContain('语音输入');
     expect(container.textContent).toContain('朗读回复');

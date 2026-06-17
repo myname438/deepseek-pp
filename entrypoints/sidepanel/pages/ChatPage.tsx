@@ -15,6 +15,7 @@ import {
 } from '../../../core/voice/settings';
 import type { ChatMessage as ChatMessageType } from '../../../core/types';
 import ChatMessage from '../components/ChatMessage';
+import { StatusMessage, useConfirm } from '../components/settings/primitives';
 import { consumePendingText, onPendingText } from '../pending-text';
 import { useI18n } from '../i18n';
 
@@ -57,6 +58,8 @@ export default function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>(DEFAULT_VOICE_SETTINGS);
   const [isListening, setIsListening] = useState(false);
+  const [msgSeq, setMsgSeq] = useState(0);
+  const { confirm, node: confirmNode } = useConfirm();
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesRef = useRef<ChatMessageType[]>([]);
@@ -204,6 +207,7 @@ export default function ChatPage() {
       messagesRef.current = next;
       return next;
     });
+    setMsgSeq((n) => n + 1);
     setInputText('');
     setIsStreaming(true);
     setError(null);
@@ -220,13 +224,30 @@ export default function ChatPage() {
     });
   };
 
-  const newSession = () => {
+  const newSession = async () => {
+    // Confirm before discarding an in-progress conversation.
+    if (messages.length > 0) {
+      const ok = await confirm({
+        title: t('sidepanel.chatPage.newSessionTitle'),
+        message: t('sidepanel.chatPage.newSessionConfirm'),
+        confirmLabel: t('sidepanel.chatPage.newSession'),
+        cancelLabel: t('common.cancel'),
+      });
+      if (!ok) return;
+    }
     chrome.runtime.sendMessage({ type: 'CHAT_NEW_SESSION' }).catch(() => {});
     messagesRef.current = [];
     setMessages([]);
     setError(null);
     setIsStreaming(false);
     stopVoiceInput();
+    inputRef.current?.focus();
+  };
+
+  const retryLast = () => {
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUser) return;
+    setInputText(lastUser.text);
     inputRef.current?.focus();
   };
 
@@ -398,6 +419,8 @@ export default function ChatPage() {
       </header>
 
       <div ref={listRef} className="ds-chat-messages">
+        {confirmNode}
+
         {messages.length === 0 && !isStreaming && (
           <div className="ds-chat-empty">
             <div className="ds-empty-state-icon">
@@ -412,14 +435,25 @@ export default function ChatPage() {
 
         {messages.map((msg, index) => (
           <ChatMessage
-            key={index}
+            key={`${msg.role}-${index}-${msgSeq}`}
             message={msg}
             isStreaming={isStreaming && index === messages.length - 1 && msg.role === 'assistant'}
           />
         ))}
 
         {error && (
-          <div className="ds-chat-error">{error}</div>
+          <div className="ds-chat-error-wrap">
+            <StatusMessage tone="error">
+              {error}
+              <button
+                type="button"
+                onClick={retryLast}
+                className="ml-2 underline opacity-80 hover:opacity-100"
+              >
+                {t('common.retry')}
+              </button>
+            </StatusMessage>
+          </div>
         )}
       </div>
 

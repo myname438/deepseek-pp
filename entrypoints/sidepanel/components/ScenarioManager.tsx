@@ -56,14 +56,16 @@ export default function ScenarioManager() {
   };
 
   return (
-    <div>
-      <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--ds-text)' }}>
-        {t('sidepanel.scenario.title')}
-      </h3>
-      <p className="text-xs mb-3" style={{ color: 'var(--ds-text-tertiary)' }}>
-        {t('sidepanel.scenario.description')}
-      </p>
-
+    <section className="space-y-3">
+      <div className="space-y-0.5">
+        <h2 className="ds-settings-section-title">
+          {t('sidepanel.scenario.title')}
+        </h2>
+        <p className="ds-settings-section-description">
+          {t('sidepanel.scenario.description')}
+        </p>
+      </div>
+      <div className="ds-surface-panel rounded-xl p-4 space-y-1">
       {scenarios.filter((s) => s.builtIn).map((s) => (
         <div key={s.id} className="flex items-center gap-2 py-1.5">
           <label className="switch">
@@ -87,7 +89,7 @@ export default function ScenarioManager() {
         </div>
       ))}
 
-      <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--ds-border)' }}>
+      <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--ds-border)' }}>
         <span className="text-xs font-medium" style={{ color: 'var(--ds-text-secondary)' }}>{t('sidepanel.scenario.customTitle')}</span>
         {scenarios.filter((s) => !s.builtIn).map((s) => (
           <div key={s.id} className="flex items-center gap-2 py-1.5">
@@ -117,6 +119,7 @@ export default function ScenarioManager() {
           <button onClick={handleAdd} className="text-xs px-2 py-1 rounded" style={{ background: 'var(--ds-accent)', color: '#fff' }}>{t('common.add')}</button>
         </div>
       </div>
-    </div>
+      </div>
+    </section>
   );
 }

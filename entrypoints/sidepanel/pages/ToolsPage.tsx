@@ -4,6 +4,7 @@ import { isShellNativeHostSupported } from '../../../core/platform';
 import type { LocaleMessageKey } from '../../../core/i18n';
 import type { McpServerConfig, McpToolAllowlist, McpToolCacheEntry, PlatformEnvironment, ToolDescriptor } from '../../../core/types';
 import PageIntro from '../components/PageIntro';
+import { SettingsSection, StatusMessage, ToggleRow } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 
 type PermissionState = 'idle' | 'granting' | 'granted' | 'denied' | 'error';
@@ -107,6 +108,7 @@ function PythonToolCard({
   cache,
   busy,
   message,
+  messageTone,
   nativeMessagingSupported,
   onCreate,
   onRefresh,
@@ -116,6 +118,7 @@ function PythonToolCard({
   cache: McpToolCacheEntry | null;
   busy: PythonBusyState;
   message: string;
+  messageTone: 'success' | 'error' | 'warning' | 'info';
   nativeMessagingSupported: boolean;
   onCreate: () => void;
   onRefresh: () => void;
@@ -163,16 +166,14 @@ function PythonToolCard({
           <button
             onClick={onToggle}
             disabled={!canToggle}
-            className="relative shrink-0 w-10 h-[22px] rounded-full transition-colors duration-200 disabled:opacity-50"
-            style={{
-              background: enabled ? 'var(--ds-blue)' : 'var(--ds-border)',
-            }}
+            aria-pressed={enabled}
+            aria-label={t('sidepanel.toolsPage.pythonTitle')}
+            className="ds-switch relative shrink-0 w-10 h-[22px] rounded-full transition-colors duration-200 disabled:opacity-50"
+            style={{ background: enabled ? 'var(--ds-blue)' : 'var(--ds-border)' }}
           >
             <span
               className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
-              style={{
-                transform: enabled ? 'translateX(18px)' : 'translateX(0)',
-              }}
+              style={{ transform: enabled ? 'translateX(18px)' : 'translateX(0)' }}
             />
           </button>
         </div>
@@ -208,13 +209,13 @@ function PythonToolCard({
         </div>
 
         {message && (
-          <div className="text-[11px] mt-2 px-2 py-1.5 rounded-lg" style={{ color: 'var(--ds-text-secondary)', background: 'var(--ds-surface)' }}>
-            {message}
+          <div className="mt-2">
+            <StatusMessage tone={messageTone}>{message}</StatusMessage>
           </div>
         )}
         {server && cache && !pythonExec && (
-          <div className="text-[11px] mt-2 px-2 py-1.5 rounded-lg" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)' }}>
-            {t('sidepanel.toolsPage.pythonMissingDetail')}
+          <div className="mt-2">
+            <StatusMessage tone="error">{t('sidepanel.toolsPage.pythonMissingDetail')}</StatusMessage>
           </div>
         )}
       </div>
@@ -235,7 +236,9 @@ export default function ToolsPage() {
   const [pythonCache, setPythonCache] = useState<McpToolCacheEntry | null>(null);
   const [pythonBusy, setPythonBusy] = useState<PythonBusyState>('idle');
   const [pythonMessage, setPythonMessage] = useState('');
+  const [pythonMessageTone, setPythonMessageTone] = useState<'success' | 'error' | 'warning' | 'info'>('info');
   const [platform, setPlatform] = useState<PlatformEnvironment | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     chrome.runtime.sendMessage({ type: 'GET_WEB_TOOL_SETTINGS' }).then((result: Record<string, boolean>) => {
@@ -276,6 +279,7 @@ export default function ToolsPage() {
       payload: { serverId: shell.id },
     });
     setPythonCache(cache ?? null);
+    setLoading(false);
   };
 
   const handleCreatePythonShell = async () => {
@@ -283,11 +287,13 @@ export default function ToolsPage() {
     setPythonMessage('');
     try {
       if (!isShellNativeHostSupported(platform)) {
+        setPythonMessageTone('error');
         setPythonMessage(t('sidepanel.toolsPage.pythonStatusUnsupported'));
         return;
       }
       const existing = pythonServer;
       if (existing) {
+        setPythonMessageTone('info');
         setPythonMessage(t('sidepanel.toolsPage.shellExists'));
         return;
       }
@@ -295,6 +301,7 @@ export default function ToolsPage() {
         type: 'CREATE_MCP_SERVER',
         payload: createShellMcpPresetInput(),
       });
+      setPythonMessageTone('success');
       setPythonMessage(t('sidepanel.toolsPage.shellCreated'));
       await loadPythonTool();
     } finally {
@@ -314,8 +321,10 @@ export default function ToolsPage() {
       const cache: McpToolCacheEntry | null = result?.cache ?? result ?? null;
       setPythonCache(cache);
       if (cache?.descriptors.some((tool) => tool.name === 'python_exec')) {
+        setPythonMessageTone('success');
         setPythonMessage(t('sidepanel.toolsPage.pythonFound'));
       } else {
+        setPythonMessageTone('error');
         setPythonMessage(t('sidepanel.toolsPage.pythonMissingAfterRefresh'));
       }
       await loadPythonTool();
@@ -328,6 +337,7 @@ export default function ToolsPage() {
     if (!pythonServer) return;
     const pythonExec = pythonCache?.descriptors.find((tool) => tool.name === 'python_exec');
     if (!pythonExec) {
+      setPythonMessageTone('error');
       setPythonMessage(t('sidepanel.toolsPage.pythonMissingBeforeToggle'));
       return;
     }
@@ -351,6 +361,7 @@ export default function ToolsPage() {
           },
         },
       });
+      setPythonMessageTone('success');
       setPythonMessage(shouldEnable ? t('sidepanel.toolsPage.pythonEnabled') : t('sidepanel.toolsPage.pythonDisabled'));
       await loadPythonTool();
     } finally {
@@ -422,34 +433,12 @@ export default function ToolsPage() {
             </svg>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <div
-                  className="text-xs font-medium truncate"
-                  style={{ color: 'var(--ds-text)' }}
-                >
-                  {t(tool.nameKey)}
-                </div>
-                <button
-                  onClick={() => handleToggle(tool.key, !settings[tool.key])}
-                  className="relative shrink-0 w-10 h-[22px] rounded-full transition-colors duration-200"
-                  style={{
-                    background: settings[tool.key] ? 'var(--ds-blue)' : 'var(--ds-border)',
-                  }}
-                >
-                  <span
-                    className="ds-switch-thumb absolute top-[3px] left-[3px] w-4 h-4 rounded-full transition-transform duration-200"
-                    style={{
-                      transform: settings[tool.key] ? 'translateX(18px)' : 'translateX(0)',
-                    }}
-                  />
-                </button>
-              </div>
-              <div
-                className="text-[11px] mt-1 leading-relaxed"
-                style={{ color: 'var(--ds-text-secondary)' }}
-              >
-                {t(tool.descriptionKey)}
-              </div>
+              <ToggleRow
+                title={t(tool.nameKey)}
+                description={t(tool.descriptionKey)}
+                enabled={settings[tool.key]}
+                onToggle={(next) => handleToggle(tool.key, next)}
+              />
             </div>
           </div>
         ))}
@@ -458,6 +447,7 @@ export default function ToolsPage() {
           cache={pythonCache}
           busy={pythonBusy}
           message={pythonMessage}
+          messageTone={pythonMessageTone}
           nativeMessagingSupported={isShellNativeHostSupported(platform)}
           onCreate={handleCreatePythonShell}
           onRefresh={handleRefreshPythonTools}
@@ -475,23 +465,17 @@ export default function ToolsPage() {
         {t('sidepanel.toolsPage.disabledNotice')}
       </div>
 
-      <section className="space-y-2">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.toolsPage.diagnosticTitle')}
-        </h2>
-        <p className="text-[11px]" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.toolsPage.diagnosticDescription')}
-        </p>
+      <SettingsSection
+        title={t('sidepanel.toolsPage.diagnosticTitle')}
+        description={t('sidepanel.toolsPage.diagnosticDescription')}
+      >
         <DiagSearch />
-      </section>
+      </SettingsSection>
 
-      <section className="space-y-2">
-        <h2 className="text-[13px] font-medium" style={{ color: 'var(--ds-text)' }}>
-          {t('sidepanel.toolsPage.permissionTitle')}
-        </h2>
-        <p className="text-[11px]" style={{ color: 'var(--ds-text-tertiary)' }}>
-          {t('sidepanel.toolsPage.permissionDescription')}
-        </p>
+      <SettingsSection
+        title={t('sidepanel.toolsPage.permissionTitle')}
+        description={t('sidepanel.toolsPage.permissionDescription')}
+      >
         <div className="flex gap-2">
           <input
             type="url"
@@ -518,28 +502,13 @@ export default function ToolsPage() {
           </button>
         </div>
         {permState === 'granted' && (
-          <div
-            className="text-[11px] px-3 py-2 rounded-lg"
-            style={{ color: 'var(--ds-success)', background: 'var(--ds-success-bg)' }}
-          >
-            {t('sidepanel.toolsPage.permissionGranted')}
-          </div>
+          <StatusMessage tone="success">{t('sidepanel.toolsPage.permissionGranted')}</StatusMessage>
         )}
         {permState === 'denied' && (
-          <div
-            className="text-[11px] px-3 py-2 rounded-lg"
-            style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)' }}
-          >
-            {t('sidepanel.toolsPage.permissionDenied')}
-          </div>
+          <StatusMessage tone="error">{t('sidepanel.toolsPage.permissionDenied')}</StatusMessage>
         )}
         {permState === 'error' && (
-          <div
-            className="text-[11px] px-3 py-2 rounded-lg"
-            style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)' }}
-          >
-            {t('sidepanel.toolsPage.permissionInvalidUrl')}
-          </div>
+          <StatusMessage tone="error">{t('sidepanel.toolsPage.permissionInvalidUrl')}</StatusMessage>
         )}
 
         <div className="pt-1">
@@ -574,7 +543,7 @@ export default function ToolsPage() {
             {t('sidepanel.toolsPage.allSitesHelp')}
           </p>
         </div>
-      </section>
+      </SettingsSection>
     </div>
   );
 }

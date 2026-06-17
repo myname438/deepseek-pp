@@ -1,16 +1,16 @@
 import { useState } from 'react';
-import SkillPage from './SkillPage';
-import McpPage from './McpPage';
-import ToolsPage from './ToolsPage';
-import PresetPage from './PresetPage';
 import AutomationPage from './AutomationPage';
 import BrowserControlPage from './BrowserControlPage';
+import McpPage from './McpPage';
+import PresetPage from './PresetPage';
+import SkillPage from './SkillPage';
+import ToolsPage from './ToolsPage';
+import { SubTabs } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
-import type { LocaleMessageKey } from '../../../core/i18n';
 
-type SubTab = 'skill' | 'mcp' | 'tools' | 'browser' | 'preset' | 'automation';
+type CapabilitiesSubTab = 'skill' | 'mcp' | 'tools' | 'browser' | 'preset' | 'automation';
 
-const SUB_TABS: { key: SubTab; labelKey: LocaleMessageKey }[] = [
+const SUB_TABS: { key: CapabilitiesSubTab; labelKey: 'sidepanel.capabilitiesPage.tabs.skill' | 'sidepanel.capabilitiesPage.tabs.mcp' | 'sidepanel.capabilitiesPage.tabs.tools' | 'sidepanel.capabilitiesPage.tabs.browser' | 'sidepanel.capabilitiesPage.tabs.preset' | 'sidepanel.capabilitiesPage.tabs.automation' }[] = [
   { key: 'skill', labelKey: 'sidepanel.capabilitiesPage.tabs.skill' },
   { key: 'mcp', labelKey: 'sidepanel.capabilitiesPage.tabs.mcp' },
   { key: 'tools', labelKey: 'sidepanel.capabilitiesPage.tabs.tools' },
@@ -20,23 +20,17 @@ const SUB_TABS: { key: SubTab; labelKey: LocaleMessageKey }[] = [
 ];
 
 export default function CapabilitiesPage() {
-  const [sub, setSub] = useState<SubTab>('skill');
+  const [sub, setSub] = useState<CapabilitiesSubTab>('skill');
   const { t } = useI18n();
 
   return (
     <div className="flex flex-col h-full">
-      <nav className="sub-tabs" aria-label={t('sidepanel.capabilitiesPage.navLabel')}>
-        {SUB_TABS.map((tab) => (
-          <button
-            key={tab.key}
-            type="button"
-            onClick={() => setSub(tab.key)}
-            className={`sub-tab${sub === tab.key ? ' sub-tab-active' : ''}`}
-          >
-            {t(tab.labelKey)}
-          </button>
-        ))}
-      </nav>
+      <SubTabs
+        tabs={SUB_TABS.map((tab) => ({ key: tab.key, label: t(tab.labelKey) }))}
+        value={sub}
+        onChange={setSub}
+        ariaLabel={t('sidepanel.capabilitiesPage.navLabel')}
+      />
 
       <div className="flex-1 overflow-y-auto">
         {sub === 'skill' && <SkillPage />}

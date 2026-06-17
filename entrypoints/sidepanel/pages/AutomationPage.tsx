@@ -10,6 +10,7 @@ import type {
 import { validateAutomationSchedule } from '../../../core/automation/schedule';
 import type { SupportedLocale } from '../../../core/i18n';
 import PageIntro from '../components/PageIntro';
+import { SkeletonList, ToggleRow, useBanner, useConfirm } from '../components/settings/primitives';
 import { useI18n } from '../i18n';
 
 const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
@@ -51,7 +52,9 @@ export default function AutomationPage() {
   const [editing, setEditing] = useState<Automation | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
-  const [message, setMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const banner = useBanner();
+  const { confirm, node: confirmNode } = useConfirm();
 
   const activeCount = useMemo(
     () => automations.filter((item) => item.status === 'active').length,
@@ -72,6 +75,7 @@ export default function AutomationPage() {
       }),
     );
     setRuns(Object.fromEntries(runEntries));
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -103,30 +107,30 @@ export default function AutomationPage() {
   const startCreate = () => {
     setEditing(null);
     setForm(EMPTY_FORM);
-    setMessage('');
+    banner.clear();
     setShowForm((prev) => !prev);
   };
 
   const startEdit = (automation: Automation) => {
     setEditing(automation);
     setForm(fromAutomation(automation));
-    setMessage('');
+    banner.clear();
     setShowForm(true);
   };
 
   const save = async () => {
     const payload = toAutomationInput(form);
     if (!payload.name || !payload.prompt) {
-      setMessage(t('sidepanel.automationPage.namePromptRequired'));
+      banner.show('error', t('sidepanel.automationPage.namePromptRequired'));
       return;
     }
     if (payload.schedule.enabled && !payload.schedule.expression) {
-      setMessage(t('sidepanel.automationPage.expressionRequired'));
+      banner.show('error', t('sidepanel.automationPage.expressionRequired'));
       return;
     }
     const scheduleValidation = validateAutomationSchedule(payload.schedule);
     if (!scheduleValidation.ok) {
-      setMessage(scheduleValidation.error.message);
+      banner.show('error', scheduleValidation.error.message);
       return;
     }
 
@@ -138,16 +142,15 @@ export default function AutomationPage() {
       : await chrome.runtime.sendMessage({ type: 'CREATE_AUTOMATION', payload });
 
     if (response?.ok === false && response.error) {
-      setMessage(typeof response.error === 'string' ? response.error : response.error.message);
+      banner.show('error', typeof response.error === 'string' ? response.error : response.error.message);
       return;
     }
 
     if (response?.lastError) {
-      setMessage(response.lastError.message);
+      banner.show('error', response.lastError.message);
       return;
-    } else {
-      setMessage('');
     }
+    banner.show('success', editing ? t('common.saveChanges') : t('sidepanel.automationPage.created'));
     setShowForm(false);
     setEditing(null);
     await load();
@@ -155,16 +158,16 @@ export default function AutomationPage() {
 
   const runNow = async (id: string) => {
     setRunningIds((prev) => new Set(prev).add(id));
-    setMessage('');
+    banner.clear();
     try {
       const run: AutomationRun | { ok: false; error: string } | null = await chrome.runtime.sendMessage({
         type: 'RUN_AUTOMATION_NOW',
         payload: { id },
       });
       if (run && 'error' in run && typeof run.error === 'string') {
-        setMessage(run.error);
+        banner.show('error', run.error);
       } else if (run && 'status' in run && (run.status === 'failed' || run.status === 'timeout')) {
-        setMessage(run.error?.message ?? t('sidepanel.automationPage.runFailed'));
+        banner.show('error', run.error?.message ?? t('sidepanel.automationPage.runFailed'));
       }
     } finally {
       setRunningIds((prev) => {
@@ -185,7 +188,13 @@ export default function AutomationPage() {
   };
 
   const remove = async (automation: Automation) => {
-    if (!confirm(t('sidepanel.automationPage.deleteConfirm', { name: automation.name }))) return;
+    const ok = await confirm({
+      title: t('sidepanel.automationPage.deleteConfirm', { name: automation.name }),
+      message: t('sidepanel.automationPage.deleteConfirm', { name: automation.name }),
+      confirmLabel: t('common.delete'),
+      cancelLabel: t('common.cancel'),
+    });
+    if (!ok) return;
     await chrome.runtime.sendMessage({ type: 'DELETE_AUTOMATION', payload: { id: automation.id } });
     await load();
   };
@@ -214,11 +223,8 @@ export default function AutomationPage() {
         )}
       />
 
-      {message && (
-        <div className="rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--ds-danger)', background: 'var(--ds-danger-bg)', border: '1px solid var(--ds-danger-border)' }}>
-          {message}
-        </div>
-      )}
+      {banner.node}
+      {confirmNode}
 
       {showForm && (
         <div className="animate-slide-down">
@@ -227,12 +233,14 @@ export default function AutomationPage() {
             editing={editing}
             onChange={setForm}
             onSave={save}
-            onCancel={() => { setShowForm(false); setEditing(null); setMessage(''); }}
+            onCancel={() => { setShowForm(false); setEditing(null); banner.clear(); }}
           />
         </div>
       )}
 
-      {automations.length === 0 && !showForm ? (
+      {loading ? (
+        <SkeletonList rows={3} />
+      ) : automations.length === 0 && !showForm ? (
         <div className="ds-empty-state">
           <div className="ds-empty-state-icon">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -353,23 +361,17 @@ function AutomationForm({
         />
       </label>
 
-      <div className="flex items-center gap-4">
-        <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--ds-text-secondary)' }}>
-          <input
-            type="checkbox"
-            checked={form.searchEnabled}
-            onChange={(e) => update('searchEnabled', e.target.checked)}
-          />
-          {t('sidepanel.automationPage.form.search')}
-        </label>
-        <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--ds-text-secondary)' }}>
-          <input
-            type="checkbox"
-            checked={form.thinkingEnabled}
-            onChange={(e) => update('thinkingEnabled', e.target.checked)}
-          />
-          {t('sidepanel.automationPage.form.thinking')}
-        </label>
+      <div className="grid grid-cols-2 gap-2">
+        <ToggleRow
+          title={t('sidepanel.automationPage.form.search')}
+          enabled={form.searchEnabled}
+          onToggle={(next) => update('searchEnabled', next)}
+        />
+        <ToggleRow
+          title={t('sidepanel.automationPage.form.thinking')}
+          enabled={form.thinkingEnabled}
+          onToggle={(next) => update('thinkingEnabled', next)}
+        />
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
