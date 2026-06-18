@@ -4,8 +4,8 @@ Last updated: 2026-06-18
 
 ## Package
 
-- Current version: `1.0.0`
-- Upload package: `dist/deepseek-plus-plus-1.0.0-chrome.zip`
+- Current version: `1.0.1`
+- Upload package: `dist/deepseek-plus-plus-1.0.1-chrome.zip`
 - Category: Productivity
 - Default language: English (United States)
 - Homepage URL: `https://github.com/zhu1090093659/deepseek-pp`
@@ -88,8 +88,9 @@ DeepSeek++ 不运营用于收集扩展数据的后台服务。除非用户主动
 
 Mandatory assets prepared in this repo:
 
-- Extension icon: `public/icon/128.png` (`128x128`)
-- Small promotional image: `docs/chrome-web-store/assets/small-promo.png` (`440x280`)
+- Extension icon: `assets/chrome-web-store-icon-128.png` (`128x128`)
+- Small promotional image: `assets/chrome-web-store-promo-small-440x280.png` (`440x280`)
+- Top promotional image: `assets/chrome-web-store-promo-top-1400x560.png` (`1400x560`)
 - Screenshot: `docs/chrome-web-store/assets/screenshot-inline-tools-1280x800.png` (`1280x800`)
 
 Optional existing screenshots for future store-gallery polish:

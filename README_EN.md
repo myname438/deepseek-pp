@@ -29,7 +29,7 @@
   <a href="#feature-overview">Feature Overview</a> ·
   <a href="#use-cases">Use Cases</a> ·
   <a href="#installation">Installation</a> ·
-  <a href="#100-release-highlights">1.0.0 Highlights</a>
+  <a href="#101-release-highlights">1.0.1 Highlights</a>
 </p>
 
 ## Product Positioning
@@ -46,7 +46,7 @@ Language can follow the browser or be set to English or Simplified Chinese. Deep
 - [Feature Overview](#feature-overview)
 - [Use Cases](#use-cases)
 - [Core Features](#core-features)
-- [1.0.0 Release Highlights](#100-release-highlights)
+- [1.0.1 Release Highlights](#101-release-highlights)
 - [Installation](#installation)
 - [Friendly Links](#friendly-links)
 
@@ -295,7 +295,22 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
   <img src="assets/screenshot-sidepanel-automation.png" width="300" alt="Automation task side panel">
 </p>
 
-## 1.0.0 Release Highlights
+## 1.0.1 Release Highlights
+
+1.0.1 is a post-1.0.0 experience and reliability update, making session speed easier to inspect, project conversations easier to manage, and MCP/multimodal execution more controlled inside the browser workflow.
+
+| Area | Main changes |
+|------|--------------|
+| Usage and speed visibility | Adds a Usage settings page for local token, request, duration, and speed statistics so users can understand how the current DeepSeek++ workflow is running. |
+| Tool execution boundaries | Tightens MCP tool execution and multimodal capability checks, reducing accidental runs when a tool is disabled, unconfigured, or unsuitable for the current environment. |
+| Project conversation experience | Polishes project-sidebar conversation links and theme styling so lists, links, and state cues are clearer in light and dark modes. |
+| Store assets | Adds Chrome Web Store icon and promotional images so the listing can better represent the current product surface. |
+| Regression coverage | Adds tests for token speed, usage statistics, MCP execution policy, multimodal policy, side-panel navigation, and project-sidebar organization. |
+
+<details>
+<summary>Show 1.0.0 release highlights</summary>
+
+### 1.0.0 Release Highlights
 
 1.0.0 matures DeepSeek++ as a multimodal browser workspace, bringing image/video analysis, MCP, local tools, and cleaner side-panel management into the same task flow.
 
@@ -308,6 +323,8 @@ npm run shell:install -- --browser chrome --extension-id <extension-id>
 | Side-panel organization | Settings are split into General, API, Appearance, Data, Prompt, Voice, and About subpages, while MCP, Tools, Skills, and Automation pages get clearer loading and confirmation states. |
 | UI consistency | Tool cards, the Skill popup, injected styling, and side-panel controls continue to align visual density, state feedback, and accessibility. |
 | Regression coverage | Adds tests for multimodal media, Native Host environment wiring, MCP collapsed state, tool-block styling, side-panel navigation, and injected themes. |
+
+</details>
 
 <details>
 <summary>Show 0.7.5 release highlights</summary>

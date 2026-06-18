@@ -14,11 +14,12 @@ Official references:
 
 ## Current Status
 
-- Chrome MV3 package exists at `dist/deepseek-plus-plus-1.0.0-chrome.zip`.
+- Chrome MV3 package exists at `dist/deepseek-plus-plus-1.0.1-chrome.zip`.
 - Package root contains `manifest.json`.
 - Package size is below the Chrome Web Store package limit.
-- Required icon exists at `public/icon/128.png`.
-- Required small promo image exists at `docs/chrome-web-store/assets/small-promo.png`.
+- Required icon exists at `assets/chrome-web-store-icon-128.png`.
+- Required small promo image exists at `assets/chrome-web-store-promo-small-440x280.png`.
+- Optional top promo image exists at `assets/chrome-web-store-promo-top-1400x560.png`.
 - Required screenshot exists at `docs/chrome-web-store/assets/screenshot-inline-tools-1280x800.png`.
 - Remote worker execution has been removed from the PoW path; the extension now uses packaged local code for PoW solving.
 
@@ -47,7 +48,7 @@ npm run zip:chrome
 Upload:
 
 ```text
-dist/deepseek-plus-plus-1.0.0-chrome.zip
+dist/deepseek-plus-plus-1.0.1-chrome.zip
 ```
 
 ## Store Listing Fields
