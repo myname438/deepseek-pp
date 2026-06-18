@@ -21,6 +21,9 @@ import type {
 import type {
   MultimodalSettingsPatch as MultimodalSettingsPatchType,
 } from './multimodal/settings';
+import type {
+  MultimodalMediaAnalyzeRequest as MultimodalMediaAnalyzeRequestType,
+} from './multimodal/media';
 import type { VoiceSettings as VoiceSettingsType } from './voice/settings';
 import type {
   ToolCall as GenericToolCall,
@@ -119,6 +122,15 @@ export type {
   MultimodalSettingsPatch,
   MultimodalSettingsStatus,
 } from './multimodal/settings';
+
+export type {
+  MultimodalMediaAnalysisItem,
+  MultimodalMediaAnalysisSubject,
+  MultimodalMediaAnalyzeRequest,
+  MultimodalMediaAnalyzeResponse,
+  MultimodalMediaInput,
+  MultimodalMediaKind,
+} from './multimodal/media';
 
 export type {
   VoiceCapabilityState,
@@ -494,6 +506,7 @@ export type MessageAction =
   | { type: 'GET_MULTIMODAL_SETTINGS_STATUS' }
   | { type: 'SAVE_MULTIMODAL_SETTINGS'; payload: MultimodalSettingsPatchType }
   | { type: 'CLEAR_MULTIMODAL_SETTINGS' }
+  | { type: 'ANALYZE_MULTIMODAL_MEDIA'; payload: MultimodalMediaAnalyzeRequestType }
   | { type: 'GET_TOOL_DESCRIPTORS' }
   | { type: 'REFRESH_TOOL_DESCRIPTORS' }
   | { type: 'EXECUTE_TOOL_CALL'; payload: ToolCall }

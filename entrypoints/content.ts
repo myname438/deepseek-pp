@@ -76,6 +76,18 @@ import { validateBridgeMessage } from '../core/messaging/schema';
 import { startDeepSeekHistoryOrganizer, type HistoryOrganizerController } from './content/adapters/history-organizer';
 import { startDeepSeekProjectSidebarOrganizer, type ProjectSidebarOrganizerController } from './content/adapters/project-sidebar-organizer';
 import { startContentUxPolish, type ContentUxPolishController } from './content/adapters/ux-polish';
+import {
+  MULTIMODAL_MEDIA_IMAGE_MAX_BYTES,
+  MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN,
+  MULTIMODAL_MEDIA_VIDEO_INLINE_MAX_BYTES,
+  buildMultimodalAnalysisPrompt,
+  hasDeepSeekChatSessionRoute,
+  selectMultimodalMediaRouteKeyForRequest,
+  shouldPreserveInitialMultimodalMediaRoute,
+  type MultimodalMediaAnalyzeResponse,
+  type MultimodalMediaInput,
+  type MultimodalMediaKind,
+} from '../core/multimodal/media';
 
 import { createClientHeaders, rememberDeepSeekClientHeaders, saveClientHeadersToStorage } from '../core/deepseek/adapter';
 import type {
@@ -91,6 +103,11 @@ const REASONING_HOST_META_RE = /\b(?:reason|reasoning|think|thinking|thought)\b/
 const REASONING_HOST_TEXT_RE = /^(?:已思考|思考中|正在思考|thinking|reasoning|thought)(?:[（(:：]|$)/i;
 const TOKEN_SPEED_BADGE_ID = 'dpp-token-speed-badge';
 const TOKEN_SPEED_STYLE_ID = 'dpp-token-speed-css';
+const MULTIMODAL_MEDIA_BUTTON_ID = 'dpp-multimodal-media-button';
+const MULTIMODAL_MEDIA_FILE_INPUT_ID = 'dpp-multimodal-media-file-input';
+const MULTIMODAL_MEDIA_TRAY_ID = 'dpp-multimodal-media-tray';
+const MULTIMODAL_MEDIA_STATUS_ID = 'dpp-multimodal-media-status';
+const MULTIMODAL_MEDIA_STYLE_ID = 'dpp-multimodal-media-css';
 const EXPORT_ACTION_CLASS = 'dpp-export-action';
 const EXPORT_ACTION_STYLE_ID = 'dpp-export-action-css';
 const EXPORT_ACTION_TOAST_CLASS = 'dpp-export-toast';
@@ -105,6 +122,7 @@ const PET_STYLE_ID = 'dpp-pet-css';
 const TOKEN_SPEED_BOOTSTRAP_RETRY_MS = 250;
 const TOKEN_SPEED_BOOTSTRAP_RETRY_LIMIT = 40;
 const TOKEN_SPEED_MOUNT_DEBOUNCE_MS = 500;
+const MULTIMODAL_MEDIA_MOUNT_DEBOUNCE_MS = 250;
 const TOKEN_SPEED_ROUTE_CHECK_MS = 500;
 const TOOL_BLOCK_ROUTE_CHECK_MS = 500;
 const TOOL_RESTORE_STORAGE_KEY = 'dpp_tool_execution_blocks';
@@ -189,6 +207,18 @@ interface ActiveToolBlockSession {
   updatedAt: number;
 }
 
+interface PendingMultimodalMedia {
+  id: string;
+  kind: MultimodalMediaKind;
+  file: File;
+  name: string;
+  mimeType: string;
+  sizeBytes: number;
+  objectUrl: string | null;
+  routeKey: string;
+  createdAt: number;
+}
+
 let toolExecutions: ToolExecutionRecord[] = [];
 let toolBlockEl: HTMLElement | null = null;
 let activeToolBlockSessionId: string | null = null;
@@ -203,6 +233,14 @@ let tokenSpeedMountTimer: ReturnType<typeof setTimeout> | null = null;
 let lastTokenSpeedProgress: ResponseTokenSpeedPayload = createIdleTokenSpeedProgress();
 let tokenSpeedRouteKey = '';
 let tokenSpeedRouteTimer: ReturnType<typeof setInterval> | null = null;
+let multimodalMediaObserver: MutationObserver | null = null;
+let multimodalMediaMountTimer: ReturnType<typeof setTimeout> | null = null;
+let multimodalMediaButtonEl: HTMLButtonElement | null = null;
+let multimodalMediaFileInputEl: HTMLInputElement | null = null;
+let multimodalMediaTrayEl: HTMLElement | null = null;
+let multimodalMediaStatusEl: HTMLElement | null = null;
+let multimodalMediaBusy = false;
+const pendingMultimodalMedia = new Map<string, PendingMultimodalMedia>();
 let toolBlockRouteKey = '';
 let toolBlockRouteTimer: ReturnType<typeof setInterval> | null = null;
 let exportActionObserver: MutationObserver | null = null;
@@ -292,6 +330,7 @@ function refreshLocalizedContentSurfaces(): void {
   renderActiveToolBlockForCurrentRoute();
   scheduleRenderRestoredToolBlocks();
   scheduleRenderRestoredInlineAgentTraces();
+  renderMultimodalMediaTray();
 }
 
 function getAgentRendererLabels() {
@@ -471,6 +510,7 @@ export default defineContentScript({
     startTokenSpeedIndicatorMountObserver();
     startTokenSpeedRouteWatcher();
     startToolBlockRouteWatcher();
+    startMultimodalMediaInput();
     startConversationExportActionInjector();
     historyOrganizerController = startDeepSeekHistoryOrganizer(getHistoryOrganizerLabels);
     projectSidebarOrganizerController = startDeepSeekProjectSidebarOrganizer(getProjectSidebarOrganizerLabels);
@@ -596,8 +636,9 @@ async function handleAugmentRequestBody(data: { id?: unknown; body?: unknown }):
       throw new Error('Request body must be a string.');
     }
 
-    const project = await resolveProjectContextForRequestBody(data.body);
-    const result = augmentRequestBody(data.body, {
+    const bodyWithMultimodalMedia = await consumePendingMultimodalMediaForRequest(data.body);
+    const project = await resolveProjectContextForRequestBody(bodyWithMultimodalMedia);
+    const result = augmentRequestBody(bodyWithMultimodalMedia, {
       memories: currentMemories,
       skills: currentSkills,
       activePreset: currentActivePreset,
@@ -763,6 +804,7 @@ function invalidateExtensionContext() {
   stopTokenSpeedIndicatorMountObserver();
   stopTokenSpeedRouteWatcher();
   stopToolBlockRouteWatcher();
+  stopMultimodalMediaInput();
   removeTokenSpeedIndicator();
   stopConversationExportActionInjector();
   historyOrganizerController?.stop();
@@ -1301,6 +1343,818 @@ function getCurrentConversationTitle(): string {
     .replace(/\s*[-|]\s*DeepSeek.*$/i, '')
     .trim();
   return title || contentT('content.conversation.untitled');
+}
+
+function startMultimodalMediaInput() {
+  injectMultimodalMediaStyles();
+  mountMultimodalMediaControls();
+
+  multimodalMediaObserver?.disconnect();
+  multimodalMediaObserver = new MutationObserver(() => scheduleMultimodalMediaMount());
+  multimodalMediaObserver.observe(document.body, { childList: true, subtree: true });
+  document.addEventListener('paste', handleMultimodalMediaPaste, true);
+}
+
+function stopMultimodalMediaInput() {
+  multimodalMediaObserver?.disconnect();
+  multimodalMediaObserver = null;
+  if (multimodalMediaMountTimer) {
+    clearTimeout(multimodalMediaMountTimer);
+    multimodalMediaMountTimer = null;
+  }
+  document.removeEventListener('paste', handleMultimodalMediaPaste, true);
+  removeMultimodalMediaControls();
+  clearPendingMultimodalMedia();
+  document.getElementById(MULTIMODAL_MEDIA_STYLE_ID)?.remove();
+}
+
+function scheduleMultimodalMediaMount() {
+  if (multimodalMediaMountTimer) return;
+  multimodalMediaMountTimer = setTimeout(() => {
+    multimodalMediaMountTimer = null;
+    mountMultimodalMediaControls();
+  }, MULTIMODAL_MEDIA_MOUNT_DEBOUNCE_MS);
+}
+
+function mountMultimodalMediaControls() {
+  injectMultimodalMediaStyles();
+  const inputBox = findDeepSeekInputBox();
+  if (!inputBox) return;
+
+  if (multimodalMediaButtonEl?.isConnected && multimodalMediaButtonEl.parentElement === inputBox) {
+    updateMultimodalMediaButtonPlacement(inputBox);
+    if (multimodalMediaTrayEl) placeMultimodalMediaTray(inputBox, multimodalMediaTrayEl);
+    renderMultimodalMediaTray();
+    return;
+  }
+
+  removeMultimodalMediaControls({ keepMedia: true });
+  inputBox.setAttribute('data-dpp-multimodal-media-anchor', '');
+
+  const fileInput = document.createElement('input');
+  fileInput.id = MULTIMODAL_MEDIA_FILE_INPUT_ID;
+  fileInput.type = 'file';
+  fileInput.accept = 'image/*,video/*';
+  fileInput.multiple = true;
+  fileInput.className = 'dpp-mm-file-input';
+  fileInput.addEventListener('click', stopMultimodalMediaFileInputEvent, true);
+  fileInput.addEventListener('input', stopMultimodalMediaFileInputEvent, true);
+  fileInput.addEventListener('change', (event) => {
+    stopMultimodalMediaFileInputEvent(event);
+    const files = Array.from(fileInput.files ?? []);
+    fileInput.value = '';
+    void addPendingMultimodalFiles(files, 'picker');
+  }, true);
+
+  const button = document.createElement('button');
+  button.id = MULTIMODAL_MEDIA_BUTTON_ID;
+  button.type = 'button';
+  button.className = 'dpp-mm-button';
+  button.title = contentT('content.multimodalMedia.buttonTitle');
+  button.setAttribute('aria-label', contentT('content.multimodalMedia.buttonTitle'));
+  button.innerHTML = createMultimodalMediaButtonIcon();
+  button.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void openMultimodalMediaPicker(fileInput);
+  });
+
+  const tray = document.createElement('div');
+  tray.id = MULTIMODAL_MEDIA_TRAY_ID;
+  tray.className = 'dpp-mm-tray';
+
+  const status = document.createElement('div');
+  status.id = MULTIMODAL_MEDIA_STATUS_ID;
+  status.className = 'dpp-mm-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+
+  tray.append(status);
+  document.body.append(fileInput);
+  placeMultimodalMediaTray(inputBox, tray);
+  inputBox.append(button);
+  multimodalMediaFileInputEl = fileInput;
+  multimodalMediaButtonEl = button;
+  multimodalMediaTrayEl = tray;
+  multimodalMediaStatusEl = status;
+  updateMultimodalMediaButtonPlacement(inputBox);
+  renderMultimodalMediaTray();
+}
+
+function placeMultimodalMediaTray(inputBox: HTMLElement, tray: HTMLElement) {
+  const parent = inputBox.parentElement;
+  if (!parent) return;
+  if (tray.parentElement === parent && tray.nextElementSibling === inputBox) return;
+  parent.insertBefore(tray, inputBox);
+}
+
+async function openMultimodalMediaPicker(fileInput: HTMLInputElement) {
+  const picker = getBrowserFilePicker();
+  if (!picker) {
+    fileInput.click();
+    return;
+  }
+
+  try {
+    const handles = await picker({
+      multiple: true,
+      excludeAcceptAllOption: false,
+      types: [
+        {
+          description: 'Images and videos',
+          accept: {
+            'image/*': ['.png', '.jpg', '.jpeg', '.webp', '.gif'],
+            'video/*': ['.mp4', '.mov', '.webm', '.m4v'],
+          },
+        },
+      ],
+    });
+    const files = await Promise.all(handles.map((handle) => handle.getFile()));
+    await addPendingMultimodalFiles(files, 'picker');
+  } catch (error) {
+    if (isFilePickerAbort(error)) return;
+    throw error;
+  }
+}
+
+function getBrowserFilePicker(): ((options: {
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: Array<{
+    description?: string;
+    accept: Record<string, string[]>;
+  }>;
+}) => Promise<Array<{ getFile(): Promise<File> }>>) | null {
+  const candidate = (window as Window & {
+    showOpenFilePicker?: (options: {
+      multiple?: boolean;
+      excludeAcceptAllOption?: boolean;
+      types?: Array<{
+        description?: string;
+        accept: Record<string, string[]>;
+      }>;
+    }) => Promise<Array<{ getFile(): Promise<File> }>>;
+  }).showOpenFilePicker;
+  return typeof candidate === 'function' ? candidate.bind(window) : null;
+}
+
+function isFilePickerAbort(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function stopMultimodalMediaFileInputEvent(event: Event) {
+  if (event.type !== 'click') event.preventDefault();
+  event.stopPropagation();
+  event.stopImmediatePropagation();
+}
+
+function removeMultimodalMediaControls(options: { keepMedia?: boolean } = {}) {
+  const parent = multimodalMediaButtonEl?.parentElement ?? multimodalMediaTrayEl?.parentElement;
+  multimodalMediaButtonEl?.remove();
+  multimodalMediaFileInputEl?.remove();
+  multimodalMediaTrayEl?.remove();
+  multimodalMediaStatusEl?.remove();
+  parent?.removeAttribute('data-dpp-multimodal-media-anchor');
+  parent?.removeAttribute('data-dpp-multimodal-media-has-native');
+  parent?.removeAttribute('data-dpp-multimodal-media-has-items');
+  multimodalMediaButtonEl = null;
+  multimodalMediaFileInputEl = null;
+  multimodalMediaTrayEl = null;
+  multimodalMediaStatusEl = null;
+  if (!options.keepMedia) clearPendingMultimodalMedia();
+}
+
+function updateMultimodalMediaButtonPlacement(inputBox: HTMLElement) {
+  inputBox.setAttribute(
+    'data-dpp-multimodal-media-has-native',
+    hasNativePromptAttachmentButton(inputBox) ? 'true' : 'false',
+  );
+}
+
+function hasNativePromptAttachmentButton(inputBox: HTMLElement): boolean {
+  const inputRect = inputBox.getBoundingClientRect();
+  const buttons = Array.from(inputBox.querySelectorAll<HTMLElement>('button, [role="button"]'))
+    .filter((button) => button.id !== MULTIMODAL_MEDIA_BUTTON_ID)
+    .filter((button) => {
+      const rect = button.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const centerX = rect.left + rect.width / 2;
+      return centerX > inputRect.right - 220;
+    });
+  return buttons.length >= 2;
+}
+
+function renderMultimodalMediaTray() {
+  if (!multimodalMediaTrayEl?.isConnected) return;
+  const items = getCurrentRoutePendingMultimodalMedia();
+  const anchor = multimodalMediaButtonEl?.parentElement;
+  const hasVisibleStatus = Boolean(
+    multimodalMediaStatusEl?.textContent &&
+    (multimodalMediaBusy || multimodalMediaStatusEl.dataset.tone === 'error'),
+  );
+  const isVisible = items.length > 0 || hasVisibleStatus;
+  anchor?.setAttribute(
+    'data-dpp-multimodal-media-has-items',
+    isVisible ? 'true' : 'false',
+  );
+  multimodalMediaTrayEl.dataset.visible = isVisible ? 'true' : 'false';
+  multimodalMediaButtonEl?.toggleAttribute('disabled', multimodalMediaBusy);
+  multimodalMediaButtonEl?.classList.toggle('is-busy', multimodalMediaBusy);
+
+  multimodalMediaTrayEl.textContent = '';
+  const list = document.createElement('div');
+  list.className = 'dpp-mm-list';
+  for (const item of items) {
+    const chip = document.createElement('div');
+    chip.className = 'dpp-mm-chip';
+
+    if (item.kind === 'image' && item.objectUrl) {
+      const preview = document.createElement('img');
+      preview.className = 'dpp-mm-preview';
+      preview.src = item.objectUrl;
+      preview.alt = '';
+      chip.append(preview);
+    } else {
+      const preview = document.createElement('span');
+      preview.className = 'dpp-mm-preview dpp-mm-preview-file';
+      preview.textContent = item.kind === 'video' ? 'V' : 'I';
+      chip.append(preview);
+    }
+
+    const label = document.createElement('span');
+    label.className = 'dpp-mm-name';
+    label.textContent = `${item.name} · ${formatMultimodalMediaBytes(item.sizeBytes)}`;
+    chip.append(label);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'dpp-mm-remove';
+    remove.title = contentT('content.multimodalMedia.removeTitle', { name: item.name });
+    remove.setAttribute('aria-label', contentT('content.multimodalMedia.removeTitle', { name: item.name }));
+    remove.textContent = '×';
+    remove.addEventListener('click', () => {
+      removePendingMultimodalMedia(item.id);
+      renderMultimodalMediaTray();
+    });
+    chip.append(remove);
+
+    list.append(chip);
+  }
+  multimodalMediaTrayEl.append(list);
+  if (multimodalMediaStatusEl && hasVisibleStatus) {
+    multimodalMediaTrayEl.append(multimodalMediaStatusEl);
+  }
+}
+
+async function addPendingMultimodalFiles(files: readonly File[], source: 'picker' | 'paste') {
+  const mediaFiles = files.filter((file) => classifyMultimodalFile(file) !== null);
+  if (mediaFiles.length === 0) return;
+
+  const existing = getCurrentRoutePendingMultimodalMedia().length;
+  if (existing + mediaFiles.length > MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN) {
+    setMultimodalMediaStatus(contentT('content.multimodalMedia.tooMany', {
+      count: MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN,
+    }), 'error');
+    return;
+  }
+
+  let addedCount = 0;
+  let hasValidationError = false;
+  for (const file of mediaFiles) {
+    const kind = classifyMultimodalFile(file);
+    if (!kind) continue;
+    const error = validateMultimodalFile(file, kind);
+    if (error) {
+      hasValidationError = true;
+      setMultimodalMediaStatus(error, 'error');
+      continue;
+    }
+    const id = crypto.randomUUID();
+    const objectUrl = kind === 'image' ? URL.createObjectURL(file) : null;
+    pendingMultimodalMedia.set(id, {
+      id,
+      kind,
+      file,
+      name: file.name ||
+        (source === 'paste' ? contentT('content.multimodalMedia.pastedFileName') : 'media'),
+      mimeType: file.type,
+      sizeBytes: file.size,
+      objectUrl,
+      routeKey: getTokenSpeedRouteKey(),
+      createdAt: Date.now(),
+    });
+    addedCount++;
+  }
+
+  if (addedCount > 0 && !hasValidationError) {
+    clearMultimodalMediaStatus();
+  } else {
+    renderMultimodalMediaTray();
+  }
+}
+
+function handleMultimodalMediaPaste(event: ClipboardEvent) {
+  if (!isPromptPasteTarget(event.target)) return;
+  const files = extractMultimodalFilesFromDataTransfer(event.clipboardData);
+  if (files.length === 0) return;
+
+  event.preventDefault();
+  const text = event.clipboardData?.getData('text/plain') ?? '';
+  if (text) insertPromptText(text);
+  void addPendingMultimodalFiles(files, 'paste');
+}
+
+function extractMultimodalFilesFromDataTransfer(dataTransfer: DataTransfer | null): File[] {
+  if (!dataTransfer) return [];
+
+  const directFiles = dedupeClipboardMultimodalFiles(Array.from(dataTransfer.files ?? []));
+  if (directFiles.length > 0) return directFiles;
+
+  return dedupeClipboardMultimodalFiles(
+    Array.from(dataTransfer.items ?? [])
+      .filter((item) => item.kind === 'file')
+      .map((item) => item.getAsFile()),
+  );
+}
+
+function dedupeClipboardMultimodalFiles(candidates: Array<File | null>): File[] {
+  const files: File[] = [];
+  const seen = new Set<string>();
+  const addFile = (file: File | null) => {
+    if (!file || !classifyMultimodalFile(file)) return;
+    const key = `${file.name}\0${file.type}\0${file.size}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    files.push(file);
+  };
+
+  for (const file of candidates) {
+    addFile(file);
+  }
+  return files;
+}
+
+function isPromptPasteTarget(target: EventTarget | null): boolean {
+  const textarea = getPromptTextarea();
+  if (!textarea || !(target instanceof Node)) return false;
+  if (target === textarea) return true;
+  return Boolean(findDeepSeekInputBox()?.contains(target));
+}
+
+function insertPromptText(text: string) {
+  const textarea = getPromptTextarea();
+  if (!textarea) return;
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? start;
+  textarea.value = `${textarea.value.slice(0, start)}${text}${textarea.value.slice(end)}`;
+  textarea.selectionStart = textarea.selectionEnd = start + text.length;
+  textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }));
+}
+
+async function consumePendingMultimodalMediaForRequest(bodyStr: string): Promise<string> {
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(bodyStr);
+  } catch {
+    throw new Error(contentT('content.multimodalMedia.invalidRequest'));
+  }
+
+  const mediaRouteKey = selectPendingMultimodalMediaRouteKey(body);
+  if (!mediaRouteKey) return bodyStr;
+
+  const media = getPendingMultimodalMediaForRoute(mediaRouteKey);
+  if (media.length === 0) return bodyStr;
+
+  const originalPrompt = typeof body.prompt === 'string' ? body.prompt : '';
+  if (!originalPrompt.trim()) {
+    throw new Error(contentT('content.multimodalMedia.emptyPrompt'));
+  }
+
+  try {
+    multimodalMediaBusy = true;
+    renderMultimodalMediaTray();
+    setMultimodalMediaStatus(contentT('content.multimodalMedia.analyzing', { count: media.length }), 'info');
+
+    const inputs = await Promise.all(media.map(readPendingMultimodalMediaInput));
+    const response = await sendRuntimeMessageStrict<MultimodalMediaAnalyzeResponse>({
+      type: 'ANALYZE_MULTIMODAL_MEDIA',
+      payload: {
+        prompt: originalPrompt,
+        media: inputs,
+        chatSessionId: typeof body.chat_session_id === 'string'
+          ? body.chat_session_id
+          : getCurrentChatSessionId(),
+        parentMessageId: normalizeContentMessageId(body.parent_message_id),
+      },
+    });
+    if (!response.ok) throw new Error(response.error || 'Multimodal analysis failed.');
+
+    body.prompt = buildMultimodalAnalysisPrompt(originalPrompt, response.analyses);
+    clearPendingMultimodalMediaItems(media);
+    setMultimodalMediaStatus(contentT('content.multimodalMedia.analyzed', { count: response.analyses.length }), 'info');
+    return JSON.stringify(body);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setMultimodalMediaStatus(contentT('content.multimodalMedia.failed', { message }), 'error');
+    throw error;
+  } finally {
+    multimodalMediaBusy = false;
+    renderMultimodalMediaTray();
+  }
+}
+
+async function readPendingMultimodalMediaInput(item: PendingMultimodalMedia): Promise<MultimodalMediaInput> {
+  if (item.kind === 'image') {
+    return {
+      id: item.id,
+      kind: item.kind,
+      name: item.name,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+      dataUrl: await readFileAsDataUrl(item.file),
+    };
+  }
+
+  return {
+    id: item.id,
+    kind: item.kind,
+    name: item.name,
+    mimeType: item.mimeType,
+    sizeBytes: item.sizeBytes,
+    base64Data: await readFileAsBase64(item.file),
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error(`Failed to read ${file.name || 'media file'}.`));
+    reader.onload = () => {
+      if (typeof reader.result === 'string') resolve(reader.result);
+      else reject(new Error(`Failed to read ${file.name || 'media file'}.`));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  const comma = dataUrl.indexOf(',');
+  return comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+}
+
+function classifyMultimodalFile(file: File): MultimodalMediaKind | null {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  return null;
+}
+
+function validateMultimodalFile(file: File, kind: MultimodalMediaKind): string | null {
+  if (!file.type) return contentT('content.multimodalMedia.unsupported', { name: file.name || 'media' });
+  const maxBytes = kind === 'image' ? MULTIMODAL_MEDIA_IMAGE_MAX_BYTES : MULTIMODAL_MEDIA_VIDEO_INLINE_MAX_BYTES;
+  if (file.size > maxBytes) {
+    return contentT(
+      kind === 'image'
+        ? 'content.multimodalMedia.imageTooLarge'
+        : 'content.multimodalMedia.videoTooLarge',
+      { name: file.name || 'media', limit: formatMultimodalMediaBytes(maxBytes) },
+    );
+  }
+  return null;
+}
+
+function getCurrentRoutePendingMultimodalMedia(): PendingMultimodalMedia[] {
+  return getPendingMultimodalMediaForRoute(getTokenSpeedRouteKey());
+}
+
+function getPendingMultimodalMediaForRoute(routeKey: string): PendingMultimodalMedia[] {
+  return Array.from(pendingMultimodalMedia.values())
+    .filter((item) => item.routeKey === routeKey)
+    .sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function selectPendingMultimodalMediaRouteKey(body: Record<string, unknown>): string | null {
+  return selectMultimodalMediaRouteKeyForRequest(
+    Array.from(pendingMultimodalMedia.values()),
+    getTokenSpeedRouteKey(),
+    { parentMessageId: normalizeContentMessageId(body.parent_message_id) },
+  );
+}
+
+function handleMultimodalMediaRouteChange(previousRouteKey: string, nextRouteKey: string) {
+  if (shouldPreserveInitialMultimodalMediaRoute(previousRouteKey, nextRouteKey)) {
+    renderMultimodalMediaTray();
+    return;
+  }
+  if (hasDeepSeekChatSessionRoute(previousRouteKey) && !hasDeepSeekChatSessionRoute(nextRouteKey)) {
+    clearPendingMultimodalMedia();
+    renderMultimodalMediaTray();
+    return;
+  }
+  clearInactiveMultimodalMedia(nextRouteKey);
+}
+
+function clearInactiveMultimodalMedia(routeKey: string) {
+  for (const item of Array.from(pendingMultimodalMedia.values())) {
+    if (item.routeKey !== routeKey) removePendingMultimodalMedia(item.id);
+  }
+  renderMultimodalMediaTray();
+}
+
+function clearPendingMultimodalMediaItems(items: readonly PendingMultimodalMedia[]) {
+  for (const item of items) removePendingMultimodalMedia(item.id);
+  renderMultimodalMediaTray();
+}
+
+function clearPendingMultimodalMedia() {
+  for (const item of Array.from(pendingMultimodalMedia.values())) {
+    removePendingMultimodalMedia(item.id);
+  }
+}
+
+function removePendingMultimodalMedia(id: string) {
+  const item = pendingMultimodalMedia.get(id);
+  if (!item) return;
+  if (item.objectUrl) URL.revokeObjectURL(item.objectUrl);
+  pendingMultimodalMedia.delete(id);
+}
+
+function setMultimodalMediaStatus(message: string, tone: 'info' | 'error') {
+  if (!multimodalMediaStatusEl) return;
+  multimodalMediaStatusEl.textContent = message;
+  multimodalMediaStatusEl.dataset.tone = tone;
+  renderMultimodalMediaTray();
+}
+
+function clearMultimodalMediaStatus() {
+  if (!multimodalMediaStatusEl) return;
+  multimodalMediaStatusEl.textContent = '';
+  delete multimodalMediaStatusEl.dataset.tone;
+  renderMultimodalMediaTray();
+}
+
+function normalizeContentMessageId(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function formatMultimodalMediaBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+  if (bytes >= 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${bytes} B`;
+}
+
+function createMultimodalMediaButtonIcon(): string {
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z" />
+      <path d="m8 15 2.4-2.4a1.2 1.2 0 0 1 1.7 0L15 15.5l1-1a1 1 0 0 1 1.4 0L20 17" />
+      <path d="M8.5 9.5h.01" />
+      <path d="M16 4v4" />
+      <path d="M14 6h4" />
+    </svg>
+  `;
+}
+
+function injectMultimodalMediaStyles() {
+  if (document.getElementById(MULTIMODAL_MEDIA_STYLE_ID)) return;
+  const style = document.createElement('style');
+  style.id = MULTIMODAL_MEDIA_STYLE_ID;
+  style.textContent = `
+    [data-dpp-multimodal-media-anchor] {
+      position: relative !important;
+    }
+
+    .dpp-mm-file-input {
+      display: none !important;
+    }
+
+    .dpp-mm-button {
+      position: absolute;
+      right: 64px;
+      bottom: 18px;
+      z-index: 35;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 32px;
+      height: 32px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(238, 243, 255, 0.94);
+      color: #4d6bfe;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+      transition: background 120ms ease, color 120ms ease, transform 120ms ease, opacity 120ms ease;
+    }
+
+    [data-dpp-multimodal-media-has-native="true"] .dpp-mm-button {
+      right: 102px;
+    }
+
+    .dpp-mm-button:hover {
+      background: rgba(224, 233, 255, 0.98);
+      transform: translateY(-1px);
+    }
+
+    .dpp-mm-button:disabled {
+      cursor: wait;
+      opacity: 0.62;
+      transform: none;
+    }
+
+    .dpp-mm-button svg {
+      width: 19px;
+      height: 19px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .dpp-mm-tray {
+      all: initial;
+      box-sizing: border-box;
+      position: relative;
+      z-index: 34;
+      display: none;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      width: 100%;
+      max-width: 100%;
+      margin: 0 0 8px 0;
+      padding: 0 14px;
+      overflow: visible;
+      color: #1f2937;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+    }
+
+    .dpp-mm-tray[data-visible="true"] {
+      display: flex;
+    }
+
+    .dpp-mm-list {
+      all: initial;
+      box-sizing: border-box;
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(160px, 220px);
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 0 2px 4px 2px;
+      scrollbar-width: thin;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+    }
+
+    .dpp-mm-chip {
+      all: unset;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      min-width: 0;
+      max-width: 210px;
+      height: 36px;
+      flex: 0 0 auto;
+      padding: 4px 6px 4px 4px;
+      border: 1px solid rgba(77, 107, 254, 0.18);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #1f2937;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    .dpp-mm-preview {
+      box-sizing: border-box;
+      display: block;
+      width: 28px;
+      height: 28px;
+      flex: 0 0 28px;
+      border-radius: 6px;
+      object-fit: cover;
+      background: #eef3ff;
+    }
+
+    .dpp-mm-preview-file {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #4d6bfe;
+      font: 700 11px/1 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+    }
+
+    .dpp-mm-name {
+      box-sizing: border-box;
+      min-width: 0;
+      overflow: hidden;
+      color: inherit;
+      font: 500 12px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dpp-mm-remove {
+      all: unset;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      flex: 0 0 18px;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: #6b7280;
+      cursor: pointer;
+      font: 600 16px/1 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+    }
+
+    .dpp-mm-remove:hover {
+      background: rgba(15, 23, 42, 0.08);
+      color: #111827;
+    }
+
+    .dpp-mm-status {
+      all: unset;
+      box-sizing: border-box;
+      display: inline-flex;
+      align-items: center;
+      min-width: 0;
+      max-width: min(100%, 280px);
+      height: 24px;
+      flex: 0 0 auto;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(238, 243, 255, 0.78);
+      overflow: hidden;
+      color: #4b5563;
+      font: 500 11px/1.2 -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      pointer-events: none;
+    }
+
+    .dpp-mm-status:empty {
+      display: none;
+    }
+
+    .dpp-mm-status[data-tone="error"] {
+      color: #b42318;
+    }
+
+    body.dpp-theme-dark .dpp-mm-button {
+      background: rgba(48, 56, 82, 0.9);
+      color: #9fb2ff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.26);
+    }
+
+    body.dpp-theme-dark .dpp-mm-button:hover {
+      background: rgba(61, 72, 105, 0.96);
+    }
+
+    body.dpp-theme-dark .dpp-mm-chip {
+      border-color: rgba(125, 145, 255, 0.24);
+      background: rgba(28, 32, 44, 0.92);
+      color: #e5e7eb;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.24);
+    }
+
+    body.dpp-theme-dark .dpp-mm-preview {
+      background: rgba(72, 85, 130, 0.44);
+    }
+
+    body.dpp-theme-dark .dpp-mm-remove {
+      color: #aab1c4;
+    }
+
+    body.dpp-theme-dark .dpp-mm-remove:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: #f8fafc;
+    }
+
+    body.dpp-theme-dark .dpp-mm-status {
+      background: rgba(72, 85, 130, 0.32);
+      color: #bac3d8;
+    }
+
+    body.dpp-theme-dark .dpp-mm-status[data-tone="error"] {
+      color: #ffb4a8;
+    }
+  `;
+  document.head.appendChild(style);
 }
 
 function downloadConversationExportArtifact(artifact: ConversationExportArtifact) {
@@ -2420,7 +3274,7 @@ function scheduleTokenSpeedIndicatorMountRefresh() {
 
   tokenSpeedMountTimer = setTimeout(() => {
     tokenSpeedMountTimer = null;
-    resetTokenSpeedOnRouteChange();
+    applyCurrentRouteChange();
     if (isTokenSpeedIndicatorMountedOnCurrentInput()) return;
     renderTokenSpeedIndicator(lastTokenSpeedProgress);
   }, TOKEN_SPEED_MOUNT_DEBOUNCE_MS);
@@ -2445,9 +3299,20 @@ function stopTokenSpeedRouteWatcher() {
 
 function handleTokenSpeedRouteChange() {
   closeConversationExportMenuIfSessionChanged();
-  if (resetTokenSpeedOnRouteChange()) {
+  scheduleMultimodalMediaMount();
+  if (applyCurrentRouteChange()) {
     renderTokenSpeedIndicator(lastTokenSpeedProgress);
   }
+}
+
+function applyCurrentRouteChange(): boolean {
+  const previousRouteKey = tokenSpeedRouteKey;
+  const nextRouteKey = getTokenSpeedRouteKey();
+  if (nextRouteKey === previousRouteKey) return false;
+  handleMultimodalMediaRouteChange(previousRouteKey, nextRouteKey);
+  tokenSpeedRouteKey = nextRouteKey;
+  lastTokenSpeedProgress = createIdleTokenSpeedProgress();
+  return true;
 }
 
 function startToolBlockRouteWatcher() {
@@ -2481,14 +3346,6 @@ function handleToolBlockRouteChange() {
   renderActiveToolBlockForCurrentRoute();
   void restorePersistedToolBlocks();
   scheduleRenderRestoredToolBlocks();
-}
-
-function resetTokenSpeedOnRouteChange(): boolean {
-  const nextRouteKey = getTokenSpeedRouteKey();
-  if (nextRouteKey === tokenSpeedRouteKey) return false;
-  tokenSpeedRouteKey = nextRouteKey;
-  lastTokenSpeedProgress = createIdleTokenSpeedProgress();
-  return true;
 }
 
 function getTokenSpeedRouteKey(): string {

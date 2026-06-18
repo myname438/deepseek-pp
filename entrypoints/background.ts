@@ -132,6 +132,14 @@ import {
   createMultimodalMcpPresetInput,
 } from '../core/multimodal';
 import {
+  assertSupportedMultimodalMedia,
+  MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN,
+  type MultimodalMediaAnalysisItem,
+  type MultimodalMediaAnalyzeRequest,
+  type MultimodalMediaAnalyzeResponse,
+  type MultimodalMediaInput,
+} from '../core/multimodal/media';
+import {
   clearMultimodalSettings,
   getMultimodalSettingsStatus,
   saveMultimodalSettings,
@@ -980,6 +988,19 @@ async function handleMessage(
     case 'CLEAR_MULTIMODAL_SETTINGS':
       return { ok: true, ...(await clearMultimodalSettings()) };
 
+    case 'ANALYZE_MULTIMODAL_MEDIA': {
+      const response = await analyzeMultimodalMedia(message.payload as MultimodalMediaAnalyzeRequest);
+      await broadcastToolCallHistoryUpdate(sender.tab?.id);
+      if (!response.ok) {
+        return {
+          ok: false,
+          error: response.error ?? 'multimodal_analysis_failed',
+          analyses: response.analyses,
+        };
+      }
+      return response;
+    }
+
     case 'GET_DEEPSEEK_THEME':
       return getDeepSeekTheme();
 
@@ -1381,6 +1402,190 @@ async function executeBackgroundRuntimeToolCall(
   source: ToolExecutionTrigger,
 ): Promise<ToolResult> {
   return executeRuntimeToolCall(call, source, currentBackgroundLocale);
+}
+
+async function analyzeMultimodalMedia(
+  request: MultimodalMediaAnalyzeRequest,
+): Promise<MultimodalMediaAnalyzeResponse> {
+  try {
+    const prompt = typeof request.prompt === 'string' && request.prompt.trim()
+      ? request.prompt.trim()
+      : 'Analyze the attached media.';
+    const media = normalizeMultimodalMediaInputs(request.media);
+    const server = await getMultimodalMcpServerForAnalysis();
+    const analyses: MultimodalMediaAnalysisItem[] = [];
+
+    const images = media.filter((item) => item.kind === 'image');
+    if (images.length > 0) {
+      const result = await executeBackgroundRuntimeToolCall(
+        createMultimodalMcpToolCall(server, 'analyze_images', {
+          prompt,
+          images: images.map((item, index) => {
+            if (!item.dataUrl) throw new Error(`${item.name} is missing image data.`);
+            return {
+              type: 'input_image',
+              image_url: item.dataUrl,
+              detail: 'auto',
+              label: item.name || `image-${index + 1}`,
+            };
+          }),
+          output_schema: 'general',
+        }, request),
+        'manual_chat',
+      );
+      const analysis = createMultimodalAnalysisItem(
+        `images:${images.map((item) => item.id).join(',')}`,
+        'image',
+        images,
+        result,
+      );
+      if (!result.ok) {
+        return {
+          ok: false,
+          analyses: [analysis],
+          error: result.detail || result.summary,
+        };
+      }
+      analyses.push(analysis);
+    }
+
+    for (const video of media.filter((item) => item.kind === 'video')) {
+      if (!video.base64Data) throw new Error(`${video.name} is missing video data.`);
+      const result = await executeBackgroundRuntimeToolCall(
+        createMultimodalMcpToolCall(server, 'analyze_video', {
+          prompt,
+          video: {
+            inlineData: {
+              data: video.base64Data,
+              mimeType: video.mimeType,
+            },
+            mimeType: video.mimeType,
+          },
+          output_schema: 'summary',
+        }, request),
+        'manual_chat',
+      );
+      const analysis = createMultimodalAnalysisItem(video.id, 'video', [video], result);
+      if (!result.ok) {
+        return {
+          ok: false,
+          analyses: [...analyses, analysis],
+          error: result.detail || result.summary,
+        };
+      }
+      analyses.push(analysis);
+    }
+
+    return { ok: true, analyses };
+  } catch (error) {
+    return {
+      ok: false,
+      analyses: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function normalizeMultimodalMediaInputs(value: unknown): MultimodalMediaInput[] {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error('No multimodal media was provided.');
+  }
+  if (value.length > MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN) {
+    throw new Error(`Attach at most ${MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN} media files per turn.`);
+  }
+
+  return value.map((item, index) => {
+    if (!item || typeof item !== 'object') throw new Error(`media[${index}] must be an object.`);
+    const media = item as Partial<MultimodalMediaInput>;
+    const normalized: MultimodalMediaInput = {
+      id: nonEmptyString(media.id, `media[${index}].id`),
+      kind: media.kind === 'image' || media.kind === 'video' ? media.kind : invalidMediaKind(index),
+      name: nonEmptyString(media.name, `media[${index}].name`),
+      mimeType: nonEmptyString(media.mimeType, `media[${index}].mimeType`),
+      sizeBytes: finiteNonNegativeNumber(media.sizeBytes, `media[${index}].sizeBytes`),
+      dataUrl: typeof media.dataUrl === 'string' && media.dataUrl ? media.dataUrl : undefined,
+      base64Data: typeof media.base64Data === 'string' && media.base64Data ? media.base64Data : undefined,
+    };
+    assertSupportedMultimodalMedia(normalized);
+    return normalized;
+  });
+}
+
+async function getMultimodalMcpServerForAnalysis() {
+  const servers = await getAllMcpServers({ includeSecrets: false });
+  const server = servers.find((item) =>
+    item.displayName === MULTIMODAL_MCP_SERVER_NAME ||
+    item.transport.nativeHost === MULTIMODAL_MCP_NATIVE_HOST
+  );
+  if (!server) {
+    throw new Error('Multimodal MCP preset is missing. Create it on the MCP page first.');
+  }
+  if (!server.enabled) {
+    throw new Error('Multimodal MCP server is disabled. Enable it on the MCP page first.');
+  }
+  return server;
+}
+
+function createMultimodalMcpToolCall(
+  server: Awaited<ReturnType<typeof getMultimodalMcpServerForAnalysis>>,
+  name: 'analyze_images' | 'analyze_video',
+  payload: Record<string, unknown>,
+  request: MultimodalMediaAnalyzeRequest,
+): ToolCall {
+  return {
+    name,
+    payload,
+    raw: '',
+    provider: {
+      kind: 'mcp',
+      id: server.id,
+      displayName: server.displayName,
+      transport: server.transport.kind,
+    },
+    source: {
+      trigger: 'manual_chat',
+      chatSessionId: request.chatSessionId ?? null,
+      parentMessageId: request.parentMessageId ?? null,
+    },
+  };
+}
+
+function createMultimodalAnalysisItem(
+  id: string,
+  kind: 'image' | 'video',
+  media: readonly MultimodalMediaInput[],
+  result: ToolResult,
+): MultimodalMediaAnalysisItem {
+  return {
+    id,
+    kind,
+    media: media.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      name: item.name,
+      mimeType: item.mimeType,
+      sizeBytes: item.sizeBytes,
+    })),
+    result,
+  };
+}
+
+function nonEmptyString(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`${label} must be a non-empty string.`);
+  }
+  return value.trim();
+}
+
+function finiteNonNegativeNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+  return value;
+}
+
+function invalidMediaKind(index: number): never {
+  throw new Error(`media[${index}].kind must be image or video.`);
 }
 
 async function runBrowserSandboxToolResult(request: SandboxRunRequest): Promise<ToolResult> {

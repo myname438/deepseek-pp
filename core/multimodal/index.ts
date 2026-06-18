@@ -15,6 +15,23 @@ export {
   createMultimodalMcpPresetInput,
 } from './policy';
 
+export {
+  MULTIMODAL_MEDIA_IMAGE_MAX_BYTES,
+  MULTIMODAL_MEDIA_MAX_ITEMS_PER_TURN,
+  MULTIMODAL_MEDIA_VIDEO_INLINE_MAX_BYTES,
+  assertSupportedMultimodalMedia,
+  buildMultimodalAnalysisPrompt,
+} from './media';
+
 export type {
   MultimodalMcpPresetOptions,
 } from './policy';
+
+export type {
+  MultimodalMediaAnalysisItem,
+  MultimodalMediaAnalysisSubject,
+  MultimodalMediaAnalyzeRequest,
+  MultimodalMediaAnalyzeResponse,
+  MultimodalMediaInput,
+  MultimodalMediaKind,
+} from './media';
